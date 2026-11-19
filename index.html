@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>交通模拟器 · Traffic Simulator</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <h1>交通模拟器</h1>
+    <div class="modes" role="group" aria-label="信号灯模式">
+      <button id="mode-auto" class="mode-btn active">自动模式</button>
+      <button id="mode-manual" class="mode-btn">手动模式</button>
+    </div>
+    <div class="topbar-right">
+      <span class="hint" id="mode-hint">自动模式：信号灯按周期自动切换</span>
+    </div>
+  </header>
+
+  <main class="stage">
+    <canvas id="scene" width="1100" height="620"></canvas>
+    <div class="tooltip" id="tooltip" hidden></div>
+  </main>
+
+  <aside class="panel">
+    <section class="group">
+      <h2>控制</h2>
+      <button id="btn-pause" class="wide">暂停</button>
+      <button id="btn-reset" class="wide ghost">重置</button>
+      <label class="toggle">
+        <input id="in-closed" type="checkbox" />
+        <span>封闭模式<em>不新车驶入，到边界的车掉头</em></span>
+      </label>
+    </section>
+
+    <section class="group">
+      <h2>参数</h2>
+      <label class="slider">
+        <span>绿灯时长 <b id="val-green">12s</b></span>
+        <input id="in-green" type="range" min="4" max="30" step="1" value="12" />
+      </label>
+      <label class="slider">
+        <span>黄灯时长 <b id="val-yellow">3s</b></span>
+        <input id="in-yellow" type="range" min="1" max="6" step="1" value="3" />
+      </label>
+      <label class="slider">
+        <span>发车频率 <b id="val-spawn">0.7/s</b></span>
+        <input id="in-spawn" type="range" min="0" max="4" step="0.1" value="0.7" />
+      </label>
+      <label class="slider">
+        <span>初始车辆 <b id="val-cars">20</b></span>
+        <input id="in-cars" type="range" min="0" max="60" step="2" value="20" />
+      </label>
+    </section>
+
+    <section class="group">
+      <h2>自定义车辆</h2>
+      <select id="car-type" class="select"></select>
+      <div class="swatches" id="car-colors"></div>
+      <button id="btn-add-car" class="wide">添加到地图</button>
+      <p class="note add-hint" id="add-hint"></p>
+    </section>
+
+    <section class="group">
+      <h2>统计</h2>
+      <dl class="stats">
+        <div><dt>在场车辆</dt><dd id="st-cars">0</dd></div>
+        <div><dt>平均车速</dt><dd id="st-speed">0</dd></div>
+        <div><dt>停车等待</dt><dd id="st-wait">0</dd></div>
+        <div><dt>已通过路口</dt><dd id="st-flow">0</dd></div>
+      </dl>
+    </section>
+
+    <section class="group">
+      <h2>说明</h2>
+      <p class="note" id="note">
+        拖动 <b>左键</b> 旋转视角，<b>滚轮</b> 缩放，<b>右键拖动</b> 平移；<br />
+        <b>左键点击</b> 路口的信号灯可手动切换相位；<b>右键点击</b> 切换为全红安全模式。<br />
+        <b>左键点击</b> 汽车可跟随该车（视角在车尾），驶出地图后自动回到原视角。<br />
+        触屏：<b>单指拖动</b> 旋转，<b>双指捏合</b> 缩放，<b>长按信号灯</b> 切全红。
+      </p>
+    </section>
+  </aside>
+</div>
+
+<script src="js/vendor/three.min.js"></script>
+<script src="js/network.js"></script>
+<script src="js/cars.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/render.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
