@@ -206,16 +206,16 @@ var Scene3D = (function () {
       for (var b = 0; b < 3; b++) {
         var h = 1.8 + rnd() * 1.5;
         var blade = new THREE.ConeGeometry(1, h, 5);
-        blade.translate(x + (rnd() - 0.5) * 2.6, 0.42 + h / 2, z + (rnd() - 0.5) * 2.6);
+        blade.translate(x + (rnd() - 0.5) * 2.6, 0.4 + h / 2, z + (rnd() - 0.5) * 2.6);
         add(blade, GREENERY.grass[(rnd() * GREENERY.grass.length) | 0]);
       }
     }
     function flower(x, z) {
       var h = 1.4 + rnd() * 0.8;
       var stem = new THREE.BoxGeometry(0.45, h, 0.45);
-      stem.translate(x, 0.42 + h / 2, z);
+      stem.translate(x, 0.4 + h / 2, z);
       add(stem, GREENERY.stem);
-      blob(x, 0.42 + h + 0.5, z, 0.85 + rnd() * 0.4,
+      blob(x, 0.4 + h + 0.5, z, 0.85 + rnd() * 0.4,
         GREENERY.petal[(rnd() * GREENERY.petal.length) | 0]);
     }
     function bench(x, z, ang) {
@@ -252,24 +252,38 @@ var Scene3D = (function () {
         // the lawn, with patches of a different green on top of it
         box(mx, 0.15, my, w, 0.5, d, GREENERY.lawn);
         for (var p = 0; p < 6; p++) {
-          disc(x0 + 12 + rnd() * (w - 24), y0 + 10 + rnd() * (d - 20),
-            10 + rnd() * 16, 7 + rnd() * 9, 0.42,
+          // the patch has to fit on the lawn, or it would spill over the kerb
+          // and paint the road green
+          var prx = 10 + rnd() * 16, prz = 7 + rnd() * 9;
+          var pcx = x0 + prx + 1 + rnd() * Math.max(1, w - prx * 2 - 2);
+          var pcz = y0 + prz + 1 + rnd() * Math.max(1, d - prz * 2 - 2);
+          disc(pcx, pcz, prx, prz, 0.42,
             GREENERY.patch[(rnd() * GREENERY.patch.length) | 0]);
         }
 
-        // a gravel path across the park and a small square where it crosses
+        // a gravel path across the park and a paved square where it crosses.
+        // every layer has a height of its own, so no two of them end up on
+        // the same plane and fight for the same pixels
         box(mx, 0.46, my, w - 8, 0.1, 11, GREENERY.path);
         box(mx, 0.45, my, 10, 0.1, d - 8, GREENERY.path);
-        disc(mx, my, 13, 13, 0.5, GREENERY.plaza);
+        box(mx, 0.505, my, 26, 0.21, 26, GREENERY.plaza);
 
         // the pond in one corner
         var px = mirrorX(x0 + w * 0.22), pz = y0 + d * 0.24;
-        disc(px, pz, 26, 16, 0.44, GREENERY.shore);
-        disc(px, pz, 21, 12, 0.47, GREENERY.water);
+        disc(px, pz, 26, 16, 0.48, GREENERY.shore);
+        disc(px, pz, 21, 12, 0.52, GREENERY.water);
 
         function inPond(x, z) {
           var dx = (x - px) / 29, dz = (z - pz) / 19;
           return dx * dx + dz * dz < 1;
+        }
+
+        // the paved parts of the park, where nothing grows
+        function onWalk(x, z) {
+          if (Math.abs(x - mx) < 13 && Math.abs(z - my) < 13) return true;
+          if (Math.abs(z - my) < 6 && Math.abs(x - mx) < w / 2) return true;
+          if (Math.abs(x - mx) < 6 && Math.abs(z - my) < d / 2) return true;
+          return false;
         }
 
         tree(mirrorX(x0 + w * 0.74), y0 + d * 0.22, 1.05);
@@ -278,21 +292,21 @@ var Scene3D = (function () {
 
         for (var u = 0; u < 6; u++) {
           var ux = x0 + 10 + rnd() * (w - 20), uy = y0 + 10 + rnd() * (d - 20);
-          if (inPond(ux, uy)) continue;
+          if (inPond(ux, uy) || onWalk(ux, uy)) continue;
           var rad = 2 + rnd() * 1.4;
           blob(ux, 0.4 + rad * 0.6, uy, rad, GREENERY.bush[(rnd() * GREENERY.bush.length) | 0], 0.66);
         }
 
         for (var t = 0; t < 18; t++) {
           var tx = x0 + 8 + rnd() * (w - 16), ty = y0 + 8 + rnd() * (d - 16);
-          if (inPond(tx, ty)) continue;
+          if (inPond(tx, ty) || onWalk(tx, ty)) continue;
           tuft(tx, ty);
         }
 
         // flowers grow in clumps
         for (var f = 0; f < 6; f++) {
           var fx = x0 + 12 + rnd() * (w - 24), fy = y0 + 12 + rnd() * (d - 24);
-          if (inPond(fx, fy)) continue;
+          if (inPond(fx, fy) || onWalk(fx, fy)) continue;
           var n = 3 + ((rnd() * 3) | 0);
           for (var k = 0; k < n; k++) {
             flower(fx + (rnd() - 0.5) * 9, fy + (rnd() - 0.5) * 7);
@@ -301,7 +315,7 @@ var Scene3D = (function () {
 
         for (var s = 0; s < 6; s++) {
           var sx = x0 + 8 + rnd() * (w - 16), sy = y0 + 8 + rnd() * (d - 16);
-          if (inPond(sx, sy)) continue;
+          if (inPond(sx, sy) || onWalk(sx, sy)) continue;
           blob(sx, 0.6, sy, 0.9 + rnd() * 0.5, GREENERY.stone, 0.7);
         }
 
@@ -389,7 +403,7 @@ var Scene3D = (function () {
     var scene = new THREE.Scene();
     scene.background = new THREE.Color(BG);
 
-    var camera = new THREE.PerspectiveCamera(46, 1, 1, 4000);
+    var camera = new THREE.PerspectiveCamera(46, 1, 5, 4000);
     var WORLD_W = CFG.MARGIN_X * 2 + (CFG.COLS - 1) * CFG.BLOCK_X + CFG.STUB;
     var WORLD_H = CFG.MARGIN_Y * 2 + (CFG.ROWS - 1) * CFG.BLOCK_Y + CFG.STUB;
     var cam = { tx: WORLD_W / 2, ty: 0, tz: WORLD_H / 2, az: 0.72, el: 0.72, zoom: 1, r: 600 };
@@ -518,10 +532,10 @@ var Scene3D = (function () {
       camera.lookAt(lookTarget);
     }
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.12));
-    scene.add(new THREE.HemisphereLight(0x9db4d6, 0x0b0f14, 0.32));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.18));
+    scene.add(new THREE.HemisphereLight(0x9db4d6, 0x0b0f14, 0.3));
 
-    var sun = new THREE.DirectionalLight(0xffffff, 0.62);
+    var sun = new THREE.DirectionalLight(0xffffff, 0.52);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.left = -480;
@@ -530,10 +544,33 @@ var Scene3D = (function () {
     sun.shadow.camera.bottom = -400;
     sun.shadow.camera.near = 10;
     sun.shadow.camera.far = 1100;
-    sun.shadow.bias = -0.0006;
-    sun.shadow.normalBias = 0.7;
+    sun.shadow.bias = -0.0007;
+    sun.shadow.normalBias = 0.05;
     scene.add(sun);
     scene.add(sun.target);
+
+    // The shadow map only covers the piece of the map the camera looks at,
+    // so the shadows stay sharp when the view is close to the ground.  The
+    // sun keeps the same angle to the map, it only moves along with us.
+    function updateShadow() {
+      var dx = camPose.px - camPose.tx;
+      var dy = camPose.py - camPose.ty;
+      var dz = camPose.pz - camPose.tz;
+      var dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      var half = Math.tan(camera.fov * Math.PI / 360) * dist;
+      var wide = half * camera.aspect;
+      var ext = Math.min(520, Math.max(wide, half) * 1.8 + 30);
+      sun.target.position.set(camPose.tx, 0, camPose.tz);
+      sun.position.set(camPose.tx + 220, 330, camPose.tz + 170);
+      var sc = sun.shadow.camera;
+      sc.left = -ext;
+      sc.right = ext;
+      sc.top = ext;
+      sc.bottom = -ext;
+      sc.near = Math.max(1, 430 - ext * 1.6);
+      sc.far = 430 + ext * 1.6;
+      sc.updateProjectionMatrix();
+    }
 
     var staticGroup = new THREE.Group();
     var lightGroup = new THREE.Group();
@@ -1099,6 +1136,7 @@ var Scene3D = (function () {
       }
 
       updateCamera(dt || 0, sim);
+      updateShadow();
       renderer.render(scene, camera);
     }
 

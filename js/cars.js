@@ -67,14 +67,14 @@ function variant(base, extra) {
 function kit(o) {
   var trim = [], lamps = [];
   if (!o.noBumper) {
-    trim.push([TRIM.black, 1.0, 0.8, o.wid - 0.6, o.front - 0.25, o.bumperY, 1, 1]);
-    trim.push([TRIM.black, 1.0, 0.8, o.wid - 0.6, o.rear + 0.25, o.bumperY, 1, 1]);
+    trim.push([TRIM.black, 1.0, 0.8, o.wid - 0.6, o.front - 0.25, o.bumperY, 0, 1, 1]);
+    trim.push([TRIM.black, 1.0, 0.8, o.wid - 0.6, o.rear + 0.25, o.bumperY, 0, 1, 1]);
   }
   var sl = o.sillLen || (o.front - o.rear) * 0.4;
   var sx = o.sillX === undefined ? 0 : o.sillX;
   trim.push([TRIM.dark, sl, 0.3, 0.4, sx, o.sillY, o.wid / 2 - 0.4, 1, 1]);
   trim.push([TRIM.dark, sl, 0.3, 0.4, sx, o.sillY, -(o.wid / 2 - 0.4), 1, 1]);
-  if (!o.noGrille) trim.push([TRIM.grille, 0.5, 0.6, o.wid * 0.5, o.front - 0.15, o.grilleY, 1, 1]);
+  if (!o.noGrille) trim.push([TRIM.grille, 0.5, 0.6, o.wid * 0.5, o.front - 0.15, o.grilleY, 0, 1, 1]);
   var lw = o.lampW || o.wid * 0.26;
   var lz = o.wid / 2 - lw / 2;
   lamps.push([0xfff0cc, 0.5, 0.55, lw, o.front - 0.15, o.lampY, lz]);
@@ -134,11 +134,11 @@ CAR_SHAPES.sport = (function () {
     [4.0, 0.7, 0.25, -1.6, 2.9, -3.4, 1, 1]
   ];
   s.trim = [
-    [TRIM.black, 0.9, 0.35, 8.2, 8.2, 0.75, 1, 1],      // front splitter
-    [TRIM.black, 0.9, 0.4, 8.2, -8.2, 0.8, 1, 1],       // rear diffuser
+    [TRIM.black, 0.9, 0.35, 8.2, 8.2, 0.75, 0, 1, 1],      // front splitter
+    [TRIM.black, 0.9, 0.4, 8.2, -8.2, 0.8, 0, 1, 1],       // rear diffuser
     [TRIM.black, 5.4, 0.22, 0.3, 0, 0.85, 4.05, 1, 1],   // side skirts
     [TRIM.black, 5.4, 0.22, 0.3, 0, 0.85, -4.05, 1, 1],
-    [TRIM.grille, 0.5, 0.35, 4.2, 8.25, 1.6, 1, 1]      // grille
+    [TRIM.grille, 0.5, 0.35, 4.2, 8.25, 1.6, 0, 1, 1]      // grille
   ];
   s.lamps = [
     [0xfff6dd, 0.55, 0.32, 2.1, 8.2, 1.85, 3.35],
@@ -173,7 +173,7 @@ CAR_SHAPES.suv = (function () {
   var k = kit({ front: 8.5, rear: -8.5, wid: 9.2, bumperY: 1.4, sillY: 1.5, grilleY: 3.1, lampY: 2.6, lampW: 2.2 });
   s.trim = s.trim.concat(k.trim);
   // bull bar
-  s.trim.push([TRIM.dark, 0.5, 1.7, 6.6, 8.6, 2.7, 1, 1]);
+  s.trim.push([TRIM.dark, 0.5, 1.7, 6.6, 8.6, 2.7, 0, 1, 1]);
   s.trim.push([TRIM.dark, 0.35, 0.35, 0.5, 8.7, 2.0, 2.6, 1, 1]);
   s.trim.push([TRIM.dark, 0.35, 0.35, 0.5, 8.7, 2.0, -2.6, 1, 1]);
   s.lamps = s.lamps.concat(k.lamps);
@@ -252,7 +252,7 @@ CAR_SHAPES.police = variant(CAR_SHAPES.sedan, {
   label: '警车',
   trim: [
     [TRIM.dark, 1.6, 0.35, 5.8, 0.2, 4.85, 0, 1, 1],       // light bar base
-    [TRIM.dark, 0.6, 0.9, 6.6, 8.6, 1.8, 1, 1],            // push bar
+    [TRIM.dark, 0.6, 0.9, 6.6, 8.6, 1.8, 0, 1, 1],            // push bar
     [TRIM.dark, 0.35, 0.35, 0.5, 8.75, 1.4, 2.3, 1, 1],
     [TRIM.dark, 0.35, 0.35, 0.5, 8.75, 1.4, -2.3, 1, 1],
     [TRIM.dark, 5.6, 0.28, 0.28, -1.4, 2.05, 4.42, 1, 1],  // door stripe
@@ -578,7 +578,7 @@ CAR_SHAPES.buggy = (function () {
     [0.28, 0.28, 5.0, -3.4, 3.95, 0, 1, 1]
   ];
   s.trim = [
-    [TRIM.steel, 0.4, 0.4, 6.4, 6.2, 1.5, 1, 1],    // front bar
+    [TRIM.steel, 0.4, 0.4, 6.4, 6.2, 1.5, 0, 1, 1],    // front bar
     [TRIM.dark, 11.0, 0.3, 0.3, 0, 1.5, 2.5, 1, 1],
     [TRIM.dark, 11.0, 0.3, 0.3, 0, 1.5, -2.5, 1, 1]
   ];
@@ -609,8 +609,8 @@ CAR_SHAPES.golf = (function () {
     [0.25, 1.6, 0.25, -3.4, 3.0, -2.6, 1, 1]
   ];
   s.trim = [
-    [TRIM.dark, 0.4, 0.35, 4.6, 4.5, 1.3, 1, 1],     // front bumper
-    [TRIM.dark, 0.4, 0.35, 4.6, -4.5, 1.3, 1, 1]
+    [TRIM.dark, 0.4, 0.35, 4.6, 4.5, 1.3, 0, 1, 1],     // front bumper
+    [TRIM.dark, 0.4, 0.35, 4.6, -4.5, 1.3, 0, 1, 1]
   ];
   s.cyl = [
     [TRIM.dark, 0.5, 0.14, 0.9, 2.5, 1.5, 0, 1.2]   // steering wheel
