@@ -164,9 +164,13 @@ var Scene3D = (function () {
 
   /* The empty blocks between the roads are little parks: a lawn of grass
      patches, a gravel path, a pond, trees, bushes and flowers.  Nothing
-     grows above the height of the traffic, so it never gets in the way. */
-  function blockGreenery() {
+     grows above the height of the traffic, so it never gets in the way.
+     Two of the blocks are different: one turns into a beach with a game of
+     volleyball, the other into a fairground with rides. */
+  function blockScenery() {
     var parts = [];
+    var meshes = [];
+    var actors = [];
     var rnd = seeded(20261118);
     var half = CFG.ROAD_W / 2 + 4;
 
@@ -237,96 +241,115 @@ var Scene3D = (function () {
       blob(x, 10.2, z, 1.1, GREENERY.lamp);
     }
 
+    // one of the parks.  The two other blocks get something else.
+    function park(x0, x1, y0, y1, c, r) {
+      var w = x1 - x0, d = y1 - y0;
+      var mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      // every other park is mirrored, so the four of them do not look alike
+      var flip = (c + r) % 2 ? -1 : 1;
+      function mirrorX(v) { return mx + flip * (v - mx); }
+
+      // the lawn, with patches of a different green on top of it
+      box(mx, 0.15, my, w, 0.5, d, GREENERY.lawn);
+      for (var p = 0; p < 6; p++) {
+        // the patch has to fit on the lawn, or it would spill over the kerb
+        // and paint the road green
+        var prx = 10 + rnd() * 16, prz = 7 + rnd() * 9;
+        var pcx = x0 + prx + 1 + rnd() * Math.max(1, w - prx * 2 - 2);
+        var pcz = y0 + prz + 1 + rnd() * Math.max(1, d - prz * 2 - 2);
+        disc(pcx, pcz, prx, prz, 0.42,
+          GREENERY.patch[(rnd() * GREENERY.patch.length) | 0]);
+      }
+
+      // a gravel path across the park and a paved square where it crosses.
+      // every layer has a height of its own, so no two of them end up on
+      // the same plane and fight for the same pixels
+      box(mx, 0.46, my, w - 8, 0.1, 11, GREENERY.path);
+      box(mx, 0.45, my, 10, 0.1, d - 8, GREENERY.path);
+      box(mx, 0.505, my, 26, 0.21, 26, GREENERY.plaza);
+
+      // the pond in one corner
+      var px = mirrorX(x0 + w * 0.22), pz = y0 + d * 0.24;
+      disc(px, pz, 26, 16, 0.48, GREENERY.shore);
+      disc(px, pz, 21, 12, 0.52, GREENERY.water);
+
+      function inPond(x, z) {
+        var dx = (x - px) / 29, dz = (z - pz) / 19;
+        return dx * dx + dz * dz < 1;
+      }
+
+      // the paved parts of the park, where nothing grows
+      function onWalk(x, z) {
+        if (Math.abs(x - mx) < 13 && Math.abs(z - my) < 13) return true;
+        if (Math.abs(z - my) < 6 && Math.abs(x - mx) < w / 2) return true;
+        if (Math.abs(x - mx) < 6 && Math.abs(z - my) < d / 2) return true;
+        return false;
+      }
+
+      tree(mirrorX(x0 + w * 0.74), y0 + d * 0.22, 1.05);
+      tree(mirrorX(x0 + w * 0.78), y0 + d * 0.76, 0.92);
+      tree(mirrorX(x0 + w * 0.30), y0 + d * 0.80, 1.15);
+
+      for (var u = 0; u < 6; u++) {
+        var ux = x0 + 10 + rnd() * (w - 20), uy = y0 + 10 + rnd() * (d - 20);
+        if (inPond(ux, uy) || onWalk(ux, uy)) continue;
+        var rad = 2 + rnd() * 1.4;
+        blob(ux, 0.4 + rad * 0.6, uy, rad, GREENERY.bush[(rnd() * GREENERY.bush.length) | 0], 0.66);
+      }
+
+      for (var t = 0; t < 18; t++) {
+        var tx = x0 + 8 + rnd() * (w - 16), ty = y0 + 8 + rnd() * (d - 16);
+        if (inPond(tx, ty) || onWalk(tx, ty)) continue;
+        tuft(tx, ty);
+      }
+
+      // flowers grow in clumps
+      for (var f = 0; f < 6; f++) {
+        var fx = x0 + 12 + rnd() * (w - 24), fy = y0 + 12 + rnd() * (d - 24);
+        if (inPond(fx, fy) || onWalk(fx, fy)) continue;
+        var n = 3 + ((rnd() * 3) | 0);
+        for (var k = 0; k < n; k++) {
+          flower(fx + (rnd() - 0.5) * 9, fy + (rnd() - 0.5) * 7);
+        }
+      }
+
+      for (var s = 0; s < 6; s++) {
+        var sx = x0 + 8 + rnd() * (w - 16), sy = y0 + 8 + rnd() * (d - 16);
+        if (inPond(sx, sy) || onWalk(sx, sy)) continue;
+        blob(sx, 0.6, sy, 0.9 + rnd() * 0.5, GREENERY.stone, 0.7);
+      }
+
+      bench(mirrorX(x0 + w * 0.5 + 13), my - 9, Math.PI / 2);
+      bench(mirrorX(mx - 13), y0 + d * 0.5, 0);
+      lampPost(mx + 24, my);
+      lampPost(mx - 24, my);
+      lampPost(mirrorX(x0 + w * 0.5), y0 + d * 0.5 - 22);
+    }
+
+    // what the scenery needs from the renderer: the colour helper, the merge
+    // helper and a random number generator
+    var api = { rgb: rgb, merge: mergeColored, rnd: rnd };
+
     for (var c = 0; c < CFG.COLS - 1; c++) {
       for (var r = 0; r < CFG.ROWS - 1; r++) {
         var x0 = CFG.MARGIN_X + c * CFG.BLOCK_X + half;
         var x1 = CFG.MARGIN_X + (c + 1) * CFG.BLOCK_X - half;
         var y0 = CFG.MARGIN_Y + r * CFG.BLOCK_Y + half;
         var y1 = CFG.MARGIN_Y + (r + 1) * CFG.BLOCK_Y - half;
-        var w = x1 - x0, d = y1 - y0;
-        var mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
-        // every other park is mirrored, so the four of them do not look alike
-        var flip = (c + r) % 2 ? -1 : 1;
-        function mirrorX(v) { return mx + flip * (v - mx); }
 
-        // the lawn, with patches of a different green on top of it
-        box(mx, 0.15, my, w, 0.5, d, GREENERY.lawn);
-        for (var p = 0; p < 6; p++) {
-          // the patch has to fit on the lawn, or it would spill over the kerb
-          // and paint the road green
-          var prx = 10 + rnd() * 16, prz = 7 + rnd() * 9;
-          var pcx = x0 + prx + 1 + rnd() * Math.max(1, w - prx * 2 - 2);
-          var pcz = y0 + prz + 1 + rnd() * Math.max(1, d - prz * 2 - 2);
-          disc(pcx, pcz, prx, prz, 0.42,
-            GREENERY.patch[(rnd() * GREENERY.patch.length) | 0]);
-        }
+        var built = null;
+        if (c === 0 && r === 0) built = Scenery.beach(api, x0, x1, y0, y1);
+        else if (c === 1 && r === 1) built = Scenery.fair(api, x0, x1, y0, y1);
+        else park(x0, x1, y0, y1, c, r);
 
-        // a gravel path across the park and a paved square where it crosses.
-        // every layer has a height of its own, so no two of them end up on
-        // the same plane and fight for the same pixels
-        box(mx, 0.46, my, w - 8, 0.1, 11, GREENERY.path);
-        box(mx, 0.45, my, 10, 0.1, d - 8, GREENERY.path);
-        box(mx, 0.505, my, 26, 0.21, 26, GREENERY.plaza);
-
-        // the pond in one corner
-        var px = mirrorX(x0 + w * 0.22), pz = y0 + d * 0.24;
-        disc(px, pz, 26, 16, 0.48, GREENERY.shore);
-        disc(px, pz, 21, 12, 0.52, GREENERY.water);
-
-        function inPond(x, z) {
-          var dx = (x - px) / 29, dz = (z - pz) / 19;
-          return dx * dx + dz * dz < 1;
-        }
-
-        // the paved parts of the park, where nothing grows
-        function onWalk(x, z) {
-          if (Math.abs(x - mx) < 13 && Math.abs(z - my) < 13) return true;
-          if (Math.abs(z - my) < 6 && Math.abs(x - mx) < w / 2) return true;
-          if (Math.abs(x - mx) < 6 && Math.abs(z - my) < d / 2) return true;
-          return false;
-        }
-
-        tree(mirrorX(x0 + w * 0.74), y0 + d * 0.22, 1.05);
-        tree(mirrorX(x0 + w * 0.78), y0 + d * 0.76, 0.92);
-        tree(mirrorX(x0 + w * 0.30), y0 + d * 0.80, 1.15);
-
-        for (var u = 0; u < 6; u++) {
-          var ux = x0 + 10 + rnd() * (w - 20), uy = y0 + 10 + rnd() * (d - 20);
-          if (inPond(ux, uy) || onWalk(ux, uy)) continue;
-          var rad = 2 + rnd() * 1.4;
-          blob(ux, 0.4 + rad * 0.6, uy, rad, GREENERY.bush[(rnd() * GREENERY.bush.length) | 0], 0.66);
-        }
-
-        for (var t = 0; t < 18; t++) {
-          var tx = x0 + 8 + rnd() * (w - 16), ty = y0 + 8 + rnd() * (d - 16);
-          if (inPond(tx, ty) || onWalk(tx, ty)) continue;
-          tuft(tx, ty);
-        }
-
-        // flowers grow in clumps
-        for (var f = 0; f < 6; f++) {
-          var fx = x0 + 12 + rnd() * (w - 24), fy = y0 + 12 + rnd() * (d - 24);
-          if (inPond(fx, fy) || onWalk(fx, fy)) continue;
-          var n = 3 + ((rnd() * 3) | 0);
-          for (var k = 0; k < n; k++) {
-            flower(fx + (rnd() - 0.5) * 9, fy + (rnd() - 0.5) * 7);
-          }
-        }
-
-        for (var s = 0; s < 6; s++) {
-          var sx = x0 + 8 + rnd() * (w - 16), sy = y0 + 8 + rnd() * (d - 16);
-          if (inPond(sx, sy) || onWalk(sx, sy)) continue;
-          blob(sx, 0.6, sy, 0.9 + rnd() * 0.5, GREENERY.stone, 0.7);
-        }
-
-        bench(mirrorX(x0 + w * 0.5 + 13), my - 9, Math.PI / 2);
-        bench(mirrorX(mx - 13), y0 + d * 0.5, 0);
-        lampPost(mx + 24, my);
-        lampPost(mx - 24, my);
-        lampPost(mirrorX(x0 + w * 0.5), y0 + d * 0.5 - 22);
+        if (!built) continue;
+        for (var p = 0; p < built.parts.length; p++) parts.push(built.parts[p]);
+        for (var m = 0; m < built.meshes.length; m++) meshes.push(built.meshes[m]);
+        actors.push(built);
       }
     }
-    return mergeColored(parts);
+
+    return { geo: mergeColored(parts), meshes: meshes, actors: actors };
   }
 
   /* ---------------------------------------------------------------- cars
@@ -577,6 +600,11 @@ var Scene3D = (function () {
     var carGroup = new THREE.Group();
     scene.add(staticGroup, lightGroup, carGroup);
 
+    // the rides of the fairground and the ball of the beach, moved every frame
+    var sceneryActors = [];
+    var sceneryMeshes = [];
+    var sceneryClock = 0;
+
     var unitBox = new THREE.BoxGeometry(1, 1, 1);
     var pickables = [];
     var heads = [];
@@ -665,6 +693,16 @@ var Scene3D = (function () {
     function build(net) {
       disposeGroup(staticGroup);
       disposeGroup(lightGroup);
+      // the scenery of the last build goes with it
+      for (var sd = 0; sd < sceneryMeshes.length; sd++) {
+        sceneryMeshes[sd].traverse(function (o) {
+          if (!o.isMesh) return;
+          if (o.geometry) o.geometry.dispose();
+          if (o.material) o.material.dispose();
+        });
+      }
+      sceneryMeshes.length = 0;
+      sceneryActors.length = 0;
       pickables.length = 0;
       heads.length = 0;
 
@@ -721,12 +759,29 @@ var Scene3D = (function () {
       ground.receiveShadow = true;
       staticGroup.add(ground);
 
+      var scenery = blockScenery();
       var plants = new THREE.Mesh(
-        blockGreenery(),
+        scenery.geo,
         new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })
       );
       plants.receiveShadow = true;
       staticGroup.add(plants);
+
+      // the rides and the other moving parts stand in their own objects
+      for (var sm = 0; sm < scenery.meshes.length; sm++) {
+        scenery.meshes[sm].traverse(function (o) {
+          if (!o.isMesh) return;
+          if (o.material && o.material.transparent) {
+            o.castShadow = false;
+            return;
+          }
+          o.castShadow = true;
+          o.receiveShadow = true;
+        });
+        staticGroup.add(scenery.meshes[sm]);
+      }
+      sceneryActors = scenery.actors;
+      sceneryMeshes = scenery.meshes;
 
       var roadMat = new THREE.MeshStandardMaterial({ color: COL.road, roughness: 0.95 });
       var boxMat = new THREE.MeshStandardMaterial({ color: COL.box, roughness: 0.95 });
@@ -1134,6 +1189,9 @@ var Scene3D = (function () {
         head.beaconMat.color.setHex(bc);
         head.beaconMat.emissive.setHex(flag === 'off' ? 0x000000 : bc);
       }
+
+      sceneryClock += dt || 0;
+      for (var a = 0; a < sceneryActors.length; a++) sceneryActors[a].update(sceneryClock);
 
       updateCamera(dt || 0, sim);
       updateShadow();
