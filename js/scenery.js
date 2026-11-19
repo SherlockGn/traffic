@@ -107,16 +107,13 @@ var Scenery = (function () {
     cyl(0.5, 9, cx + 11, G + 4.5, cz, BEACH.post, 8);
     box(22, 0.5, 0.3, cx, G + 8.2, cz, BEACH.post);
 
-    // the net itself, thin enough to see the court through
-    var net = new THREE.Mesh(
-      new THREE.BoxGeometry(22, 6.4, 0.15),
-      new THREE.MeshStandardMaterial({
-        color: BEACH.net, transparent: true, opacity: 0.4, roughness: 0.9
-      })
-    );
-    net.position.set(cx, G + 5.1, cz);
-    net.castShadow = true;
-    meshes.push(net);
+    // the net, a mesh of thin bars
+    for (var nv = -5; nv <= 5; nv++) {
+      box(0.22, 6.4, 0.12, cx + nv * 2, G + 5.1, cz, BEACH.net);
+    }
+    for (var nh = 0; nh < 4; nh++) {
+      box(22, 0.22, 0.12, cx, G + 2.2 + nh * 2, cz, BEACH.net);
+    }
 
     // the ball, arcing over the net
     var ballGeo = api.merge([
@@ -181,17 +178,20 @@ var Scenery = (function () {
     }
 
     function chair(px, pz, ground) {
-      var g = new THREE.BoxGeometry(6, 0.4, 2.4);
-      g.translate(px, ground + 1.6, pz);
-      add(g, 0xf5f2e8);
-      var back = new THREE.BoxGeometry(6, 0.4, 2.4);
-      back.rotateX(-0.9);
-      back.translate(px, ground + 3.0, pz - 1.4);
+      // a lounger: a flat pad with a raised back on four short legs
+      var seat = new THREE.BoxGeometry(5, 0.4, 2.2);
+      seat.translate(px, ground + 1.3, pz);
+      add(seat, 0xf5f2e8);
+      var back = new THREE.BoxGeometry(5, 0.4, 1.95);
+      back.rotateX(-1.055);
+      back.translate(px, ground + 2.35, pz - 0.625);
       add(back, 0xf5f2e8);
-      for (var s = 0; s < 2; s++) {
-        var leg = new THREE.BoxGeometry(0.4, 1.6, 0.4);
-        leg.translate(px + (s ? 2.4 : -2.4), ground + 0.8, pz);
-        add(leg, FUN.wood);
+      for (var s = -1; s <= 1; s += 2) {
+        for (var t = -1; t <= 1; t += 2) {
+          var leg = new THREE.BoxGeometry(0.35, 1.3, 0.35);
+          leg.translate(px + s * 2.1, ground + 0.65, pz + t * 0.75);
+          add(leg, FUN.wood);
+        }
       }
     }
 
@@ -294,8 +294,8 @@ var Scenery = (function () {
       plat.castShadow = true; plat.receiveShadow = true;
       g.add(plat);
 
-      var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 16, 12), mat(FUN.gold));
-      pole.position.y = 8.6;
+      var pole = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 17, 12), mat(FUN.gold));
+      pole.position.y = 8.5;
       pole.castShadow = true;
       g.add(pole);
 
@@ -303,24 +303,27 @@ var Scenery = (function () {
       // platform, so the horses stand out beyond its edge.
       for (var s = 0; s < 12; s++) {
         var wedge = new THREE.Mesh(
-          new THREE.ConeGeometry(16.5, 6.6, 3, 1, true, s / 12 * Math.PI * 2, Math.PI / 6),
+          new THREE.ConeGeometry(16.5, 6, 3, 1, true, s / 12 * Math.PI * 2, Math.PI / 6),
           mat(s % 2 ? FUN.red : FUN.cream)
         );
-        wedge.position.y = 15.4;
+        wedge.position.y = 14;
         wedge.castShadow = true;
         g.add(wedge);
       }
       var rim = new THREE.Mesh(new THREE.TorusGeometry(16.4, 0.55, 6, 32), mat(FUN.gold));
       rim.rotation.x = Math.PI / 2;
-      rim.position.y = 12;
+      rim.position.y = 10.8;
       g.add(rim);
+      var knob = new THREE.Mesh(new THREE.SphereGeometry(1.3, 12, 10), mat(FUN.gold));
+      knob.position.y = 17.8;
+      g.add(knob);
 
       // the horses, each on a pole that goes up and down
       var horses = [];
       for (var i = 0; i < 6; i++) {
         var holder = new THREE.Group();
         var a = i / 6 * Math.PI * 2;
-        holder.position.set(Math.cos(a) * 14.5, 1.2, Math.sin(a) * 14.5);
+        holder.position.set(Math.cos(a) * 14.5, 1.8, Math.sin(a) * 14.5);
         holder.rotation.y = -a + Math.PI / 2;
         var horse = new THREE.Mesh(horseGeo(i), new THREE.MeshStandardMaterial({
           vertexColors: true, roughness: 0.65
@@ -337,7 +340,7 @@ var Scenery = (function () {
           g.rotation.y = t * 0.32;
           for (var i = 0; i < horses.length; i++) {
             var h = horses[i];
-            h.holder.position.y = 1.2 + Math.sin(t * 2.1 + h.phase) * 1.8;
+            h.holder.position.y = 1.8 + Math.sin(t * 2.1 + h.phase) * 0.7;
           }
         }
       };
@@ -346,23 +349,38 @@ var Scenery = (function () {
     function horseGeo(seed) {
       var p = [];
       var coat = [0xf5f1e4, 0xe6b49b, 0xd8c19a][seed % 3];
+      var tack = [FUN.red, FUN.blue, FUN.green][seed % 3];
       function b(w, h, d, x, y, z, hex, rot) {
         var g = new THREE.BoxGeometry(w, h, d);
         if (rot) g.rotateZ(rot);
         g.translate(x, y, z);
         p.push({ geo: g, color: api.rgb(hex) });
       }
-      b(4.4, 1.8, 1.4, 0, 2.9, 0, coat);
-      b(1.6, 2.4, 1.1, 2.1, 3.8, 0, coat, -0.55);
-      b(2.0, 1.1, 1.0, 3.2, 4.6, 0, coat);
-      b(1.4, 0.5, 1.0, 2.9, 5.1, 0, FUN.dark);
-      b(4.2, 0.5, 0.6, -1.6, 3.6, 0, coat, 0.5);
-      b(0.5, 2.1, 0.5, 1.5, 1.1, 0.45, coat, 0.2);
-      b(0.5, 2.1, 0.5, 1.5, 1.1, -0.45, coat, -0.2);
-      b(0.5, 2.1, 0.5, -1.5, 1.1, 0.45, coat, -0.2);
-      b(0.5, 2.1, 0.5, -1.5, 1.1, -0.45, coat, 0.2);
-      b(0.3, 9, 0.3, 0, 4.5, 0, FUN.gold);
-      return api.merge(p);
+      // legs: the front pair reaches forward, the back pair reaches back
+      b(0.6, 2.8, 0.6, 1.5, 1.4, 0.5, coat, 0.25);
+      b(0.6, 2.8, 0.6, 1.5, 1.4, -0.5, coat, 0.25);
+      b(0.6, 2.8, 0.6, -1.5, 1.4, 0.5, coat, -0.25);
+      b(0.6, 2.8, 0.6, -1.5, 1.4, -0.5, coat, -0.25);
+      // body, neck and head
+      b(4.6, 2.0, 1.7, 0, 3.5, 0, coat);
+      b(1.8, 2.6, 1.2, 2.2, 4.8, 0, coat, -0.5);
+      b(1.7, 1.3, 1.1, 3.5, 5.9, 0, coat, -0.25);
+      b(0.9, 0.7, 0.9, 4.3, 5.5, 0, coat);
+      b(0.3, 0.6, 0.3, 3.1, 6.6, 0.35, coat);
+      b(0.3, 0.6, 0.3, 3.1, 6.6, -0.35, coat);
+      // the mane along the neck and the tail behind it
+      b(0.35, 2.4, 1.25, 2.5, 5.1, 0, FUN.dark, -0.5);
+      b(0.6, 2.8, 0.6, -2.35, 3.9, 0, FUN.dark, -0.35);
+      // the saddle it is strapped to
+      b(2.0, 0.5, 1.85, 0, 4.55, 0, tack);
+      // and the pole it hangs on.  It stops just short of the canopy, so
+      // it never comes out through the top of it.
+      var pole = new THREE.CylinderGeometry(0.22, 0.22, 7.8, 8);
+      pole.translate(0, 3.4, 0);
+      p.push({ geo: pole, color: api.rgb(FUN.gold) });
+      var geo = api.merge(p);
+      geo.scale(1.15, 1.15, 1.15);
+      return geo;
     }
 
     /* ------------------------------------------------------ big wheel */
@@ -372,7 +390,7 @@ var Scenery = (function () {
       root.position.set(cx, G, cz);
       root.rotation.y = 0.72;
 
-      var R = 24, AX = 30;
+      var R = 24, AX = 34;
       // the legs it stands on
       for (var s = -1; s <= 1; s += 2) {
         for (var t = -1; t <= 1; t += 2) {
@@ -412,8 +430,11 @@ var Scenery = (function () {
         a = i / 12 * Math.PI * 2;
         var hold = new THREE.Group();
         hold.position.set(0, Math.cos(a) * R, Math.sin(a) * R);
+        var hanger = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.8, 0.4), mat(FUN.steel));
+        hanger.position.y = -0.9;
+        hold.add(hanger);
         var cabin = new THREE.Mesh(new THREE.BoxGeometry(3, 2.4, 3), mat(FAIR_COLORS[i % 6]));
-        cabin.position.y = -2.2;
+        cabin.position.y = -3.1;
         cabin.castShadow = true;
         hold.add(cabin);
         pivot.add(hold);
