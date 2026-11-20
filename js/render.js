@@ -667,6 +667,7 @@ var Scene3D = (function () {
     var nightMeshes = [];
     var groundMat = null;
     var roadMat = null;
+    var wetMesh = null;
     var sky = Sky.create(scene);
 
     var sun = new THREE.DirectionalLight(0xffffff, 0.52);
@@ -812,6 +813,7 @@ var Scene3D = (function () {
         roadMat.metalness = wet ? 0.35 : 0;
       }
       if (scene.fog) scene.fog.color.setHex(dark ? 0x1a2230 : 0x6d7a88);
+      if (wetMesh) wetMesh.visible = wet;
     }
 
     function setNight(v) {
@@ -986,6 +988,16 @@ var Scene3D = (function () {
       poolMesh.visible = nightMode;
       staticGroup.add(poolMesh);
       nightMeshes.push(poolMesh);
+
+      // the puddles in the road, they only show while it rains
+      wetMesh = new THREE.Mesh(
+        mergeColored(city.wet),
+        new THREE.MeshStandardMaterial({
+          vertexColors: true, roughness: 0.06, metalness: 0.75
+        })
+      );
+      wetMesh.visible = rainMode;
+      staticGroup.add(wetMesh);
 
       roadMat = new THREE.MeshStandardMaterial({
         color: COL.road, roughness: rainMode ? 0.32 : 0.95, metalness: rainMode ? 0.35 : 0

@@ -33,7 +33,7 @@ var City = (function () {
   };
 
   function build(api, opts) {
-    var parts = [], glow = [], pools = [];
+    var parts = [], glow = [], pools = [], wet = [];
     var rnd = api.rnd;
     var map = opts.map;
 
@@ -50,6 +50,14 @@ var City = (function () {
     function add(geo, hex) { parts.push({ geo: geo, color: api.rgb(hex) }); }
     function shine(geo, hex) { glow.push({ geo: geo, color: api.rgb(hex) }); }
     function pool(geo) { pools.push({ geo: geo, color: api.rgb(0xffd9a0) }); }
+
+    // a puddle on the road, it only shows when it rains
+    function puddle(x, z, r) {
+      var g = new THREE.CircleGeometry(r, 14);
+      g.rotateX(-Math.PI / 2);
+      g.translate(x, 0.33, z);
+      wet.push({ geo: g, color: api.rgb(0x2b3d4a) });
+    }
 
     function bx(w, h, d, x, y, z, hex) {
       var g = new THREE.BoxGeometry(w, h, d);
@@ -157,6 +165,71 @@ var City = (function () {
       }
     }
 
+    /* ------------------------------------------------------------- the signs
+
+       A white disc with a red ring is the speed limit, a blue one with a
+       cross is no stopping, and the two rectangles name the street and
+       point the way. */
+    function signDisc(x, y, z, r, dx, dz, hex) {
+      var g = new THREE.CylinderGeometry(r, r, 0.35, 18);
+      g.rotateX(Math.PI / 2);
+      g.rotateY(Math.atan2(dx, dz));
+      g.translate(x, y, z);
+      add(g, hex);
+    }
+    function signRing(x, y, z, r, dx, dz, hex) {
+      var g = new THREE.TorusGeometry(r, 0.3, 6, 20);
+      g.rotateY(Math.atan2(dx, dz));
+      g.translate(x, y, z);
+      add(g, hex);
+    }
+    function signBox(w, h, x, y, z, dx, dz, hex) {
+      var g = new THREE.BoxGeometry(w, h, 0.35);
+      g.rotateY(Math.atan2(dx, dz));
+      g.translate(x, y, z);
+      add(g, hex);
+    }
+
+    // a sign on a post, facing the road
+    function sign(kind, x, z, dx, dz) {
+      cyl(0.3, 7.4, x, 5.2, z, 0x707780);
+      var y = 7.6;
+      if (kind === 0) {
+        // the speed limit
+        signDisc(x, y, z, 2.3, dx, dz, 0xf2f4f6);
+        signRing(x, y, z, 2.2, dx, dz, 0xc93a3a);
+        signRing(x - 0.95, y, z, 0.72, dx, dz, 0x23272d);
+        signRing(x + 0.95, y, z, 0.72, dx, dz, 0x23272d);
+      } else if (kind === 1) {
+        // no stopping
+        signDisc(x, y, z, 2.3, dx, dz, 0x2f6b8a);
+        signRing(x, y, z, 2.2, dx, dz, 0xc93a3a);
+        for (var k = -1; k <= 1; k += 2) {
+          var bar = new THREE.BoxGeometry(3.4, 0.5, 0.3);
+          bar.rotateZ(k * 0.7);
+          bar.rotateY(Math.atan2(dx, dz));
+          bar.translate(x, y, z);
+          add(bar, 0xc93a3a);
+        }
+      } else if (kind === 2) {
+        // the name of the street
+        signBox(7.6, 1.9, x, y, z, dx, dz, 0x2f6b4a);
+        signBox(6.9, 0.5, x, y + 0.25, z, dx, dz, 0xe8eef2);
+      } else {
+        // a sign with an arrow on it
+        signBox(6.6, 2.3, x, y, z, dx, dz, 0x27507f);
+        var shaft = new THREE.BoxGeometry(0.55, 0.55, 3.2);
+        shaft.rotateY(Math.atan2(dx, dz));
+        shaft.translate(x - dx * 0.6, y, z - dz * 0.6);
+        add(shaft, 0xe8eef2);
+        var head = new THREE.ConeGeometry(0.95, 1.7, 3);
+        head.rotateX(Math.PI / 2);
+        head.rotateY(Math.atan2(dx, dz));
+        head.translate(x + dx * 1.5, y, z + dz * 1.5);
+        add(head, 0xe8eef2);
+      }
+    }
+
     /* ---------------------------------------------------------- the festival
 
        Bunting between the lamp posts, balloons tied to them and a wreath on
@@ -250,6 +323,11 @@ var City = (function () {
       kerb(b.x0, b.x1, b.y1 + w - 0.9, b.y1 + w);
       kerb(b.x0 - w, b.x0 - w + 0.9, b.y0 - w, b.y1 + w);
       kerb(b.x1 + w - 0.9, b.x1 + w, b.y0 - w, b.y1 + w);
+      // the tactile paving that runs along the kerb
+      bx(b.x1 - b.x0, 0.3, 1.2, (b.x0 + b.x1) / 2, 1.65, b.y0 - 2.8, 0xd8b13a);
+      bx(b.x1 - b.x0, 0.3, 1.2, (b.x0 + b.x1) / 2, 1.65, b.y1 + 2.8, 0xd8b13a);
+      bx(1.2, 0.3, b.y1 - b.y0, b.x0 - 2.8, 1.65, (b.y0 + b.y1) / 2, 0xd8b13a);
+      bx(1.2, 0.3, b.y1 - b.y0, b.x1 + 2.8, 1.65, (b.y0 + b.y1) / 2, 0xd8b13a);
     }
 
     // the sidewalks on the outside of the four outer roads
@@ -415,6 +493,58 @@ var City = (function () {
       }
       if (tall && rnd() < 0.6) {
         bx(0.5, 8, 0.5, cx + (rnd() - 0.5) * w * 0.5, h + 4.9, cz + (rnd() - 0.5) * d * 0.5, C.rail);
+      }
+
+      // an air conditioner on the roof
+      if (rnd() < 0.5) {
+        var acx = cx + (rnd() - 0.5) * (w - 10), acz = cz + (rnd() - 0.5) * (d - 10);
+        bx(3.4, 1.8, 3.4, acx, h + 1.8, acz, C.ac);
+        var fan = new THREE.CylinderGeometry(1.3, 1.3, 0.3, 10);
+        fan.translate(acx, h + 2.8, acz);
+        add(fan, 0x6b7280);
+      }
+      // panels that catch the sun
+      if (rnd() < 0.4) {
+        var spx = cx + (rnd() - 0.5) * (w - 12), spz = cz + (rnd() - 0.5) * (d - 12);
+        var panel = new THREE.BoxGeometry(5.4, 0.3, 3.6);
+        panel.rotateX(-0.5);
+        panel.translate(spx, h + 2.2, spz);
+        add(panel, 0x1c3552);
+        bx(0.4, 1.6, 0.4, spx, h + 1.1, spz, C.rail);
+      }
+      // a garden on the roof
+      if (rnd() < 0.3) {
+        var gx2 = cx + (rnd() - 0.5) * (w - 14), gz2 = cz + (rnd() - 0.5) * (d - 14);
+        bx(8, 1.3, 7, gx2, h + 1.5, gz2, C.foliage);
+        for (var gb = 0; gb < 3; gb++) {
+          ball(gx2 + (rnd() - 0.5) * 6, h + 2.8, gz2 + (rnd() - 0.5) * 5, 1.1,
+            C.foliage);
+        }
+      }
+      // a washing line with the washing on it
+      if (rnd() < 0.3) {
+        var lx = cx + (rnd() - 0.5) * (w - 12), lz = cz + (rnd() - 0.5) * (d - 12);
+        bx(9, 0.14, 0.14, lx, h + 3.4, lz, 0xb8bcc2);
+        for (var cl = 0; cl < 4; cl++) {
+          bx(1.6, 2.2, 0.2, lx - 3 + cl * 2, h + 2.2, lz, C.fest[(rnd() * C.fest.length) | 0]);
+        }
+      }
+      // a billboard on the roof
+      if (rnd() < 0.35) {
+        var bx3 = cx + (rnd() - 0.5) * (w - 16), bz3 = cz + (rnd() - 0.5) * (d - 10);
+        bx(0.5, 5, 0.5, bx3 - 4, h + 3.4, bz3, C.rail);
+        bx(0.5, 5, 0.5, bx3 + 4, h + 3.4, bz3, C.rail);
+        bx(11, 5.4, 0.5, bx3, h + 7.2, bz3, C.neon[(rnd() * C.neon.length) | 0]);
+        bx(11.8, 0.6, 0.8, bx3, h + 10.1, bz3, C.rail);
+      }
+      // a wall of paint
+      if (rnd() < 0.25) {
+        var wx = cx + (rnd() - 0.5) * (w - 20), wz = z0 - 0.35;
+        bx(14, 7, 0.4, wx, 4, wz, 0x8d8a80);
+        for (var gr = 0; gr < 5; gr++) {
+          ball(wx + (rnd() - 0.5) * 11, 2 + rnd() * 4.5, wz - 0.35,
+            1 + rnd() * 1.6, C.fest[(rnd() * C.fest.length) | 0]);
+        }
       }
     }
 
@@ -615,7 +745,63 @@ var City = (function () {
       lampsAlong('x', map.y1 + 2, ax2, bx3, 1);
     }
 
-    return { parts: parts, glow: glow, pools: pools };
+    /* ---------------------------------------------------------- the signs */
+
+    // a sign on the corner of every junction
+    for (var sc = 0; sc < CFG.COLS; sc++) {
+      for (var sr = 0; sr < CFG.ROWS; sr++) {
+        var jx = CFG.MARGIN_X + sc * CFG.BLOCK_X;
+        var jz = CFG.MARGIN_Y + sr * CFG.BLOCK_Y;
+        sign((sc + sr) % 4, jx + 21, jz + 21, 0, 1);
+      }
+    }
+    // the name of the street and a sign with an arrow at every block
+    for (var bi2 = 0; bi2 < opts.blocks.length; bi2++) {
+      var bb = opts.blocks[bi2];
+      sign(2, bb.x0 - 2, bb.y0 - 2, 0.7, 0.7);
+      sign(3, bb.x1 + 2, bb.y1 + 2, -0.7, -0.7);
+    }
+    // no stopping along the outer roads
+    var oy0 = CFG.MARGIN_Y + m2, oy1 = CFG.MARGIN_Y + (CFG.ROWS - 1) * CFG.BLOCK_Y - m2;
+    for (var t = oy0 + 26; t < oy1 - 20; t += 76) {
+      sign(1, map.x0 - 2, t, 1, 0);
+      sign(1, map.x1 + 2, t, -1, 0);
+    }
+    // the speed limit where the roads enter the map
+    sign(0, map.x0 - 2, oy0 + 40, 1, 0);
+    sign(0, map.x1 + 2, oy0 + 40, -1, 0);
+    sign(0, CFG.MARGIN_X + CFG.BLOCK_X, map.y0 - 2, 0, 1);
+    sign(0, CFG.MARGIN_X + CFG.BLOCK_X, map.y1 + 2, 0, -1);
+
+    /* ------------------------------------------------- the patches of road */
+
+    // the places where the asphalt was mended
+    for (var pc = 0; pc < CFG.COLS; pc++) {
+      var lx = CFG.MARGIN_X + pc * CFG.BLOCK_X;
+      for (var pr = 0; pr < CFG.ROWS - 1; pr++) {
+        var b0 = CFG.MARGIN_Y + pr * CFG.BLOCK_Y + m2;
+        var b1 = CFG.MARGIN_Y + (pr + 1) * CFG.BLOCK_Y - m2;
+        for (var p = 0; p < 3; p++) {
+          var pz = b0 + 12 + rnd() * (b1 - b0 - 24);
+          bx(7 + rnd() * 8, 0.06, 4 + rnd() * 4, lx + (rnd() - 0.5) * 16, 0.32, pz, 0x343b44);
+          puddle(lx + (rnd() - 0.5) * 14, pz, 2.2 + rnd() * 2);
+        }
+      }
+    }
+    for (var pr2 = 0; pr2 < CFG.ROWS; pr2++) {
+      var lz = CFG.MARGIN_Y + pr2 * CFG.BLOCK_Y;
+      for (var pc2 = 0; pc2 < CFG.COLS - 1; pc2++) {
+        var c0 = CFG.MARGIN_X + pc2 * CFG.BLOCK_X + m2;
+        var c1 = CFG.MARGIN_X + (pc2 + 1) * CFG.BLOCK_X - m2;
+        for (var p2 = 0; p2 < 3; p2++) {
+          var px2 = c0 + 12 + rnd() * (c1 - c0 - 24);
+          bx(4 + rnd() * 4, 0.06, 7 + rnd() * 8, px2, 0.32, lz + (rnd() - 0.5) * 16, 0x343b44);
+          puddle(px2, lz + (rnd() - 0.5) * 14, 2.2 + rnd() * 2);
+        }
+      }
+    }
+
+    return { parts: parts, glow: glow, pools: pools, wet: wet };
   }
 
   return { build: build };
