@@ -99,19 +99,25 @@ var Scene3D = (function () {
   function mergeColored(parts) {
     var total = 0, i, v, g;
     var flat = [];
+    var allUv = true;
     for (i = 0; i < parts.length; i++) {
       g = parts[i].geo.index ? parts[i].geo.toNonIndexed() : parts[i].geo;
       flat.push(g);
       total += g.attributes.position.count;
+      if (!g.attributes.uv) allUv = false;
     }
     var pos = new Float32Array(total * 3);
     var nrm = new Float32Array(total * 3);
     var col = new Float32Array(total * 3);
+    // the texture coordinates are only kept when every part has them, the
+    // shaders that need them are only used on such a merge
+    var uv = allUv ? new Float32Array(total * 2) : null;
     var off = 0;
     for (i = 0; i < flat.length; i++) {
       g = flat[i];
       pos.set(g.attributes.position.array, off * 3);
       nrm.set(g.attributes.normal.array, off * 3);
+      if (uv) uv.set(g.attributes.uv.array, off * 2);
       var c = parts[i].color;
       for (v = 0; v < g.attributes.position.count; v++) {
         col[(off + v) * 3] = c[0];
@@ -124,6 +130,7 @@ var Scene3D = (function () {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    if (uv) geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.addGroup(0, total, 0);
     return geo;
   }
@@ -171,6 +178,7 @@ var Scene3D = (function () {
     var parts = [];
     var meshes = [];
     var actors = [];
+    var blocks = [];
     var rnd = seeded(20261118);
     var half = CFG.ROAD_W / 2 + 4;
 
@@ -336,6 +344,7 @@ var Scene3D = (function () {
         var x1 = CFG.MARGIN_X + (c + 1) * CFG.BLOCK_X - half;
         var y0 = CFG.MARGIN_Y + r * CFG.BLOCK_Y + half;
         var y1 = CFG.MARGIN_Y + (r + 1) * CFG.BLOCK_Y - half;
+        blocks.push({ x0: x0, x1: x1, y0: y0, y1: y1 });
 
         var built = null;
         if (c === 0 && r === 0) built = Scenery.beach(api, x0, x1, y0, y1);
@@ -349,7 +358,7 @@ var Scene3D = (function () {
       }
     }
 
-    return { geo: mergeColored(parts), meshes: meshes, actors: actors };
+    return { geo: mergeColored(parts), meshes: meshes, actors: actors, blocks: blocks };
   }
 
   /* ---------------------------------------------------------------- cars
@@ -555,8 +564,20 @@ var Scene3D = (function () {
       camera.lookAt(lookTarget);
     }
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.18));
-    scene.add(new THREE.HemisphereLight(0x9db4d6, 0x0b0f14, 0.3));
+    var amb = new THREE.AmbientLight(0xffffff, 0.18);
+    var hemi = new THREE.HemisphereLight(0x9db4d6, 0x0b0f14, 0.3);
+    scene.add(amb, hemi);
+    // a soft light from the other side, so the walls of the houses do not
+    // fall into the dark
+    var fill = new THREE.DirectionalLight(0xbcd0f0, 0.16);
+    fill.position.set(-260, 190, -220);
+    scene.add(fill);
+
+    // the lights of the city and the windows of the houses, they only show
+    // when the sun is down
+    var nightMode = false;
+    var nightMeshes = [];
+    var groundMat = null;
 
     var sun = new THREE.DirectionalLight(0xffffff, 0.52);
     sun.castShadow = true;
@@ -680,6 +701,21 @@ var Scene3D = (function () {
       }
     }
 
+    // switch the map between day and night: the sun goes down, the sky goes
+    // dark and the lights of the city come on
+    function setNight(v) {
+      nightMode = !!v;
+      scene.background.set(nightMode ? 0x05070c : BG);
+      sun.color.set(nightMode ? 0x8ea6d6 : 0xffffff);
+      sun.intensity = nightMode ? 0.26 : 0.52;
+      amb.intensity = nightMode ? 0.11 : 0.18;
+      hemi.color.set(nightMode ? 0x27374f : 0x9db4d6);
+      hemi.intensity = nightMode ? 0.3 : 0.3;
+      fill.intensity = nightMode ? 0.08 : 0.16;
+      if (groundMat) groundMat.color.set(nightMode ? 0x080b10 : 0x10151b);
+      for (var i = 0; i < nightMeshes.length; i++) nightMeshes[i].visible = nightMode;
+    }
+
     function roadBand(x, z, ang, len, wide, mat, top) {
       var m = new THREE.Mesh(unitBox, mat);
       m.position.set(x, (top - ROAD_TOP) / 2, z);
@@ -752,7 +788,9 @@ var Scene3D = (function () {
 
       var ground = new THREE.Mesh(
         new THREE.PlaneGeometry(6000, 6000),
-        new THREE.MeshStandardMaterial({ color: 0x10151b, roughness: 1 })
+        groundMat = new THREE.MeshStandardMaterial({
+          color: nightMode ? 0x080b10 : 0x10151b, roughness: 1
+        })
       );
       ground.rotation.x = -Math.PI / 2;
       ground.position.set(cam.tx, 0, cam.tz);
@@ -783,6 +821,55 @@ var Scene3D = (function () {
       sceneryActors = scenery.actors;
       sceneryMeshes = scenery.meshes;
 
+      // the streets and the ring of houses around the map
+      nightMeshes.length = 0;
+      var cityApi = { rgb: rgb, merge: mergeColored, rnd: seeded(9182736) };
+      var city = City.build(cityApi, {
+        blocks: scenery.blocks,
+        map: {
+          x0: CFG.MARGIN_X - CFG.ROAD_W / 2,
+          x1: CFG.MARGIN_X + (CFG.COLS - 1) * CFG.BLOCK_X + CFG.ROAD_W / 2,
+          y0: CFG.MARGIN_Y - CFG.ROAD_W / 2,
+          y1: CFG.MARGIN_Y + (CFG.ROWS - 1) * CFG.BLOCK_Y + CFG.ROAD_W / 2
+        }
+      });
+      var cityMesh = new THREE.Mesh(
+        mergeColored(city.parts),
+        new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 })
+      );
+      cityMesh.castShadow = true;
+      cityMesh.receiveShadow = true;
+      staticGroup.add(cityMesh);
+
+      // the windows that shine and the lamps of the streets
+      var glowMesh = new THREE.Mesh(
+        mergeColored(city.glow),
+        new THREE.MeshBasicMaterial({
+          vertexColors: true, transparent: true, opacity: 0.94
+        })
+      );
+      glowMesh.visible = nightMode;
+      staticGroup.add(glowMesh);
+      nightMeshes.push(glowMesh);
+
+      // the pools of light the lamps throw on the road, soft at the edges
+      var poolMat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: { glowColor: { value: new THREE.Color(0xffcf94) } },
+        vertexShader: 'varying vec2 vP; void main() { vP = uv; ' +
+          'gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: 'uniform vec3 glowColor; varying vec2 vP; void main() { ' +
+          'float d = length(vP - vec2(0.5)) * 2.0; ' +
+          'float a = pow(max(0.0, 1.0 - d), 2.2); ' +
+          'gl_FragColor = vec4(glowColor, a * 0.5); }'
+      });
+      var poolMesh = new THREE.Mesh(mergeColored(city.pools), poolMat);
+      poolMesh.visible = nightMode;
+      staticGroup.add(poolMesh);
+      nightMeshes.push(poolMesh);
+
       var roadMat = new THREE.MeshStandardMaterial({ color: COL.road, roughness: 0.95 });
       var boxMat = new THREE.MeshStandardMaterial({ color: COL.box, roughness: 0.95 });
       var edgeMat = new THREE.MeshStandardMaterial({ color: COL.edge, roughness: 0.9 });
@@ -791,6 +878,7 @@ var Scene3D = (function () {
 
       var dashes = [];
       var stops = [];
+      var manholes = [];
 
       for (i = 0; i < net.nodes.length; i++) {
         var node = net.nodes[i];
@@ -805,6 +893,12 @@ var Scene3D = (function () {
               ang, len, CFG.ROAD_W, roadMat, ROAD_TOP);
             for (var s = CFG.BOX / 2; s < lane.len - CFG.BOX / 2; s += 22) {
               dashes.push({ x: node.x + v.x * (s + 5), z: node.y + v.y * (s + 5), ang: ang });
+            }
+            // the manholes of the road
+            var mh = 1 + ((Math.random() * 2) | 0);
+            for (var mi = 0; mi < mh; mi++) {
+              var ms = CFG.BOX / 2 + 18 + Math.random() * (len - 36);
+              manholes.push({ x: node.x + v.x * ms, z: node.y + v.y * ms });
             }
           } else {
             len = CFG.STUB - CFG.BOX / 2;
@@ -888,6 +982,79 @@ var Scene3D = (function () {
       stopMesh.count = stops.length;
       stopMesh.receiveShadow = true;
       staticGroup.add(stopMesh);
+
+      /* ---------------------------------------------- the paint on the road */
+
+      var paint = [];
+      function painted(geo, hex) { paint.push({ geo: geo, color: rgb(hex) }); }
+
+      // a stripe lying on the road, `ang` is the way the road runs
+      function stripe(len, wide, x, z, ang, hex, lift) {
+        var g = new THREE.BoxGeometry(len, 0.05, wide);
+        g.rotateY(-ang);
+        g.translate(x, ROAD_TOP + (lift || 0.025), z);
+        painted(g, hex);
+      }
+
+      for (i = 0; i < net.nodes.length; i++) {
+        var node3 = net.nodes[i];
+        for (d = 0; d < 4; d++) {
+          var inId2 = node3.in[d];
+          if (!inId2) continue;
+          var il2 = net.lanes[inId2];
+          var vv = DIRS[il2.dir];
+          var ang2 = Math.atan2(vv.y, vv.x);
+          // the lane of this approach lies on the right of the road
+          var rx = -vv.y, rz = vv.x;
+          var off = CFG.LANE_OFF;
+
+          // the crossing: a band of stripes in front of the junction
+          var cx2 = node3.x - vv.x * (CFG.BOX / 2 + 8);
+          var cz2 = node3.y - vv.y * (CFG.BOX / 2 + 8);
+          for (var k = -3; k <= 3; k++) {
+            stripe(4.6, 3.2, cx2 + rx * k * 6, cz2 + rz * k * 6, ang2, 0xdfe6ec);
+          }
+
+          // the arrow that shows which way the lane goes
+          var ax2 = node3.x - vv.x * 52 + rx * off;
+          var az2 = node3.y - vv.y * 52 + rz * off;
+          stripe(7, 1.6, ax2, az2, ang2, 0xe8ecf0);
+          for (var sd = -1; sd <= 1; sd += 2) {
+            var a3 = ang2 + sd * 0.55;
+            var bdx = Math.cos(a3), bdz = Math.sin(a3);
+            var hb = new THREE.BoxGeometry(4.4, 0.05, 1.5);
+            hb.rotateY(-a3);
+            hb.translate(ax2 + vv.x * 3.5 - bdx * 2.2, ROAD_TOP + 0.025,
+              az2 + vv.y * 3.5 - bdz * 2.2);
+            painted(hb, 0xe8ecf0);
+          }
+
+          // the bump before the crossing
+          var bumpX = node3.x - vv.x * 44 + rx * off;
+          var bumpZ = node3.y - vv.y * 44 + rz * off;
+          var bump = new THREE.BoxGeometry(6, 0.55, 9);
+          bump.rotateY(-ang2);
+          bump.translate(bumpX, ROAD_TOP + 0.275, bumpZ);
+          painted(bump, 0xd8b13a);
+          for (var q = -1; q <= 1; q++) {
+            stripe(1.4, 9.2, bumpX + vv.x * q * 2, bumpZ + vv.y * q * 2, ang2, 0x22262c, 0.56);
+          }
+        }
+      }
+
+      // the manholes in the road
+      for (i = 0; i < manholes.length; i++) {
+        var mg = new THREE.CylinderGeometry(2.2, 2.2, 0.12, 14);
+        mg.translate(manholes[i].x, ROAD_TOP + 0.06, manholes[i].z);
+        painted(mg, 0x3a4048);
+      }
+
+      var paintMesh = new THREE.Mesh(
+        mergeColored(paint),
+        new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 })
+      );
+      paintMesh.receiveShadow = true;
+      staticGroup.add(paintMesh);
 
       /* ------------------------------------------------ signal heads */
 
@@ -1358,7 +1525,8 @@ var Scene3D = (function () {
       pan: pan,
       zoom: zoom,
       zoomBy: zoomBy,
-      resize: resize
+      resize: resize,
+      setNight: setNight
     };
   }
 

@@ -36,6 +36,7 @@
     valCars: document.getElementById('val-cars'),
     pause: document.getElementById('btn-pause'),
     reset: document.getElementById('btn-reset'),
+    night: document.getElementById('btn-night'),
     closed: document.getElementById('in-closed'),
     typeBox: document.getElementById('car-type'),
     colorBox: document.getElementById('car-colors'),
@@ -257,6 +258,12 @@
   });
 
   el.reset.addEventListener('click', function () { rebuild(true); });
+
+  el.night.addEventListener('click', function () {
+    var on = el.night.textContent.indexOf('开') < 0;
+    scene3d.setNight(on);
+    el.night.textContent = on ? '夜景：开' : '夜景：关';
+  });
 
   el.closed.addEventListener('change', function () { sim.setClosed(el.closed.checked); });
 

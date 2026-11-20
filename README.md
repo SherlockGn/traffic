@@ -53,6 +53,7 @@ npx serve -l 8123
 | Switch a signal phase | left click a signal | tap a signal |
 | Force all-red | right click a signal | long press a signal |
 | Follow a vehicle | left click a vehicle | tap a vehicle |
+| Day and night | the Night button in the panel | the Night button in the panel |
 
 ## Project layout
 
@@ -62,6 +63,8 @@ styles.css            dark theme, layout and the responsive phone layout
 js/network.js         road graph: junctions, lanes, routes
 js/cars.js            vehicle catalogue: 20 types with their body, glass, trim and lamp data
 js/sim.js             simulation loop: spawning, car-following, signal phases, statistics
+js/scenery.js         the blocks between the roads: parks, the beach and the fairground
+js/city.js            the streets and the ring of houses around the map
 js/render.js          three.js scene, instanced vehicle meshes, camera and picking
 js/main.js            UI wiring, input handling (mouse, wheel, touch gestures)
 js/vendor/three.min.js  three.js r149, vendored so the app works offline
