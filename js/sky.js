@@ -60,7 +60,7 @@ var Sky = (function () {
         '}'
       ].join('\n')
     });
-    var dome = new THREE.Mesh(new THREE.SphereGeometry(2600, 24, 16), domeMat);
+    var dome = new THREE.Mesh(new THREE.SphereGeometry(12000, 24, 16), domeMat);
     dome.frustumCulled = false;
     dome.renderOrder = -1;
     scene.add(dome);
@@ -71,7 +71,7 @@ var Sky = (function () {
     for (var i = 0; i < 520; i++) {
       var a = random() * Math.PI * 2;
       var e = Math.acos(random() * 0.94);
-      var r = 2300;
+      var r = 11000;
       starPos.push(
         Math.sin(e) * Math.cos(a) * r,
         Math.cos(e) * r,
@@ -89,15 +89,15 @@ var Sky = (function () {
     scene.add(stars);
 
     var moon = new THREE.Mesh(
-      new THREE.SphereGeometry(46, 16, 12),
+      new THREE.SphereGeometry(190, 16, 12),
       new THREE.MeshBasicMaterial({ color: 0xf6f2e2, fog: false })
     );
-    moon.position.set(-1500, 1250, -1750);
+    moon.position.set(-6200, 5200, -7200);
     moon.visible = false;
     scene.add(moon);
 
     var moonGlow = new THREE.Mesh(
-      new THREE.CircleGeometry(130, 24),
+      new THREE.CircleGeometry(520, 24),
       new THREE.MeshBasicMaterial({
         color: 0xbfd0f0, transparent: true, opacity: 0.16,
         blending: THREE.AdditiveBlending, depthWrite: false, fog: false

@@ -164,6 +164,7 @@ var Scene3D = (function () {
     leafWarm: [0x8a5a24, 0xa8701f, 0x9c6a1f],   // the trees in autumn
     blossom: [0xe8a8c0, 0xf2c4d6, 0xd894b4],    // the cherry trees
     planter: 0x8d8577,
+    foliage: 0x2f5c38,
     stem: 0x3a7a42,
     petal: [0xf0efe4, 0xef7f9c, 0xf3c23c, 0xb58cf0, 0xee7a42, 0xe6dcff],
     stone: 0x7c7a70,
@@ -286,6 +287,34 @@ var Scene3D = (function () {
       blob(x, 10.2, z, 1.1, GREENERY.lamp);
     }
 
+    // a christmas tree with a star on top
+    function christmasTree(x, z, ground, scale) {
+      var s = scale || 1;
+      var trunk = new THREE.CylinderGeometry(1.1 * s, 1.4 * s, 2 * s, 8);
+      trunk.translate(x, ground + 1 * s, z);
+      add(trunk, 0x5a432c);
+      var tiers = 3;
+      for (var i = 0; i < tiers; i++) {
+        var r = (5.2 - i * 1.4) * s;
+        var h = (7 - i * 0.8) * s;
+        var g = new THREE.ConeGeometry(r, h, 9);
+        g.translate(x, ground + (2.6 + i * 3.4) * s, z);
+        add(g, GREENERY.foliage);
+      }
+      var star = new THREE.ConeGeometry(1.5 * s, 2.6 * s, 5);
+      star.rotateY(0.6);
+      star.translate(x, ground + (2.6 + tiers * 3.4) * s, z);
+      add(star, 0xffd166);
+      var baubles = [0xe2514f, 0xf2c14e, 0x5aa9e6, 0x6fbf73, 0xe08ac0];
+      for (var b = 0; b < 12; b++) {
+        var a = rnd() * Math.PI * 2;
+        var rr = (2 + rnd() * 3) * s;
+        var yy = ground + (3 + rnd() * 8) * s;
+        blob(x + Math.cos(a) * rr, yy, z + Math.sin(a) * rr, 0.55 * s,
+          baubles[(rnd() * baubles.length) | 0]);
+      }
+    }
+
     // one of the parks.  The two other blocks get something else.
     function park(x0, x1, y0, y1, c, r) {
       var w = x1 - x0, d = y1 - y0;
@@ -383,6 +412,8 @@ var Scene3D = (function () {
       lampPost(mx + 24, my);
       lampPost(mx - 24, my);
       lampPost(mirrorX(x0 + w * 0.5), y0 + d * 0.5 - 22);
+      // the christmas tree stands on the paved square
+      christmasTree(mirrorX(mx), my, 0.51, 1.05);
     }
 
     // what the scenery needs from the renderer: the colour helper, the merge
@@ -445,6 +476,7 @@ var Scene3D = (function () {
       var spec = CAR_SHAPES[entry.key];
       if (!spec) continue;
       var bodyParts = [], glassParts = [], trimParts = [], lampParts = [], cylParts = [];
+      var brakeParts = [];
       var j, p;
       for (j = 0; j < spec.body.length; j++) bodyParts.push({ geo: slab(spec.body[j]), color: WHITE });
       for (j = 0; j < spec.glass.length; j++) glassParts.push({ geo: slab(spec.glass[j]), color: WHITE });
@@ -454,7 +486,10 @@ var Scene3D = (function () {
       }
       for (j = 0; j < spec.lamps.length; j++) {
         p = spec.lamps[j];
-        lampParts.push({ geo: slab(p.slice(1)), color: rgb(p[0]) });
+        // the lamps at the back of the car are the brake lights.  They get
+        // their own mesh, so they can be lit up while the car slows down.
+        if (p[4] < 0) brakeParts.push({ geo: slab(p.slice(1)), color: rgb(p[0]) });
+        else lampParts.push({ geo: slab(p.slice(1)), color: rgb(p[0]) });
       }
       for (j = 0; j < spec.cyl.length; j++) {
         p = spec.cyl[j];
@@ -472,7 +507,8 @@ var Scene3D = (function () {
         body: mergeColored(bodyParts),
         glass: glassParts.length ? mergeColored(glassParts) : null,
         trim: trimParts2.length ? mergeColored(trimParts2) : null,
-        lamps: mergeColored(lampParts)
+        lamps: mergeColored(lampParts),
+        brakes: brakeParts.length ? mergeColored(brakeParts) : null
       });
     }
     return models;
@@ -486,7 +522,7 @@ var Scene3D = (function () {
     var scene = new THREE.Scene();
     scene.background = new THREE.Color(BG);
 
-    var camera = new THREE.PerspectiveCamera(46, 1, 5, 4000);
+    var camera = new THREE.PerspectiveCamera(46, 1, 5, 30000);
     var WORLD_W = CFG.MARGIN_X * 2 + (CFG.COLS - 1) * CFG.BLOCK_X + CFG.STUB;
     var WORLD_H = CFG.MARGIN_Y * 2 + (CFG.ROWS - 1) * CFG.BLOCK_Y + CFG.STUB;
     var cam = { tx: WORLD_W / 2, ty: 0, tz: WORLD_H / 2, az: 0.72, el: 0.72, zoom: 1, r: 600 };
@@ -688,6 +724,8 @@ var Scene3D = (function () {
     var bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.08 });
     var glassMat = new THREE.MeshStandardMaterial({ color: 0x18222d, roughness: 0.22, metalness: 0.2 });
     var lightMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, emissive: 0x0f0f0f });
+    // the brake lights are not lit by the sun, they shine on their own
+    var brakeMat = new THREE.MeshBasicMaterial({ vertexColors: true });
     var wheelMat = new THREE.MeshStandardMaterial({ color: 0x14181e, roughness: 0.9 });
     // the trim keeps the colour it was drawn with, so it is never tinted by
     // the colour of the car
@@ -726,7 +764,7 @@ var Scene3D = (function () {
         if (m.bodyMesh && n <= m.capacity) continue;
         m.capacity = Math.max(n, m.capacity * 2, 8);
         if (m.bodyMesh) {
-          var old = [m.bodyMesh, m.glassMesh, m.lightMesh, m.wheelMesh, m.trimMesh];
+          var old = [m.bodyMesh, m.glassMesh, m.lightMesh, m.wheelMesh, m.trimMesh, m.brakeMesh];
           for (var k = 0; k < old.length; k++) {
             if (!old[k]) continue;
             carGroup.remove(old[k]);
@@ -739,6 +777,7 @@ var Scene3D = (function () {
         m.lightMesh = instanced(m.lights, lightMat, m.capacity);
         m.wheelMesh = instanced(m.wheelGeo, wheelMat, m.capacity * m.wheels.length);
         m.trimMesh = m.trim ? instanced(m.trim, trimMat, m.capacity) : null;
+        m.brakeMesh = m.brakes ? instanced(m.brakes, brakeMat, m.capacity) : null;
       }
     }
 
@@ -865,7 +904,7 @@ var Scene3D = (function () {
       sun.position.set(cam.tx + 220, 330, cam.tz + 170);
 
       var ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(6000, 6000),
+        new THREE.PlaneGeometry(30000, 30000),
         groundMat = new THREE.MeshStandardMaterial({
           color: nightMode ? 0x080b10 : 0x10151b, roughness: 1
         })
@@ -1297,6 +1336,7 @@ var Scene3D = (function () {
     /* ------------------------------------------------------- drawing */
 
     var tmpColor = new THREE.Color();
+    var tmpBrake = new THREE.Color();
     var tmpTrim = new THREE.Color();
     var bgColor = new THREE.Color(BG);
     var carMatrix = new THREE.Matrix4();
@@ -1371,6 +1411,15 @@ var Scene3D = (function () {
         m.lightMesh.setMatrixAt(idx, carMatrix);
         if (m.glassMesh) m.glassMesh.setMatrixAt(idx, carMatrix);
         if (m.trimMesh) m.trimMesh.setMatrixAt(idx, carMatrix);
+        if (m.brakeMesh) {
+          m.brakeMesh.setMatrixAt(idx, carMatrix);
+          // the brake lights shine while the car slows down
+          var was = car.lastV === undefined ? car.v : car.lastV;
+          car.lastV = car.v;
+          if (car.v < was - 0.6) tmpBrake.setRGB(2.2, 0.7, 0.5);
+          else tmpBrake.setRGB(0.3, 0.05, 0.03);
+          m.brakeMesh.setColorAt(idx, tmpBrake);
+        }
 
         tmpColor.set(car.color);
         if (car.fade < 1) tmpColor.lerp(bgColor, 1 - car.fade);
@@ -1411,6 +1460,11 @@ var Scene3D = (function () {
           mm.trimMesh.count = n;
           mm.trimMesh.instanceMatrix.needsUpdate = true;
           if (mm.trimMesh.instanceColor) mm.trimMesh.instanceColor.needsUpdate = true;
+        }
+        if (mm.brakeMesh) {
+          mm.brakeMesh.count = n;
+          mm.brakeMesh.instanceMatrix.needsUpdate = true;
+          if (mm.brakeMesh.instanceColor) mm.brakeMesh.instanceColor.needsUpdate = true;
         }
       }
 
