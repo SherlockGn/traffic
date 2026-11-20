@@ -83,13 +83,15 @@ var Scene3D = (function () {
   function arrowShape(turn) {
     var pts;
     if (turn === 'straight') {
-      pts = [[-6, -0.8], [2, -0.8], [2, -2.2], [6, 0], [2, 2.2], [2, 0.8], [-6, 0.8]];
+      pts = [[-6, -0.75], [2, -0.75], [2, -2], [6, 0], [2, 2], [2, 0.75], [-6, 0.75]];
     } else if (turn === 'chevron') {
-      pts = [[-1.3, 1.15], [1.35, 0], [-1.3, -1.15], [-0.6, -1.15], [0.4, 0], [-0.6, 1.15]];
+      pts = [[-1.5, 0], [-0.75, 1.35], [0.65, 1.35], [0.65, 0.72],
+      [-0.3, 0], [0.65, -0.72], [0.65, -1.35], [-0.75, -1.35]];
     } else {
+      // the shaft goes along the lane and then turns to the side
       var up = turn === 'left' ? 1 : -1;
-      pts = [[-6, -0.8], [0.8, -0.8], [0.8, 4.2 * up], [2.2, 4.2 * up], [0, 6.5 * up],
-      [-2.2, 4.2 * up], [-0.8, 4.2 * up], [-0.8, 0.8], [-6, 0.8]];
+      pts = [[-6, -0.7 * up], [0.7, -0.7 * up], [0.7, 3.1 * up], [1.9, 3.1 * up],
+      [0, 5.9 * up], [-1.9, 3.1 * up], [-0.7, 3.1 * up], [-0.7, 0.7 * up], [-6, 0.7 * up]];
     }
     // the points have to run counter clockwise, or the face looks inside out
     var area = 0;
@@ -119,14 +121,14 @@ var Scene3D = (function () {
   function lensArrowGeo(turn) {
     var pts;
     if (turn === 'straight') {
-      pts = [[-0.34, -1.55], [0.34, -1.55], [0.34, 0.1], [1.2, 0.1],
-      [0, 1.6], [-1.2, 0.1], [-0.34, 0.1]];
+      pts = [[-0.3, -1.5], [0.3, -1.5], [0.3, 0.05], [1.05, 0.05],
+      [0, 1.55], [-1.05, 0.05], [-0.3, 0.05]];
     } else if (turn === 'left') {
-      pts = [[-1.4, 0], [-0.65, 1.2], [0.45, 1.2], [0.45, 0.62],
-      [-0.6, 0], [0.45, -0.62], [0.45, -1.2], [-0.65, -1.2]];
+      pts = [[-1.5, 0], [-0.75, 1.35], [0.65, 1.35], [0.65, 0.72],
+      [-0.3, 0], [0.65, -0.72], [0.65, -1.35], [-0.75, -1.35]];
     } else {
-      pts = [[1.4, 0], [0.65, 1.2], [-0.45, 1.2], [-0.45, 0.62],
-      [0.6, 0], [-0.45, -0.62], [-0.45, -1.2], [0.65, -1.2]];
+      pts = [[1.5, 0], [0.75, 1.35], [-0.65, 1.35], [-0.65, 0.72],
+      [0.3, 0], [-0.65, -0.72], [-0.65, -1.35], [0.75, -1.35]];
     }
     var area = 0;
     for (var i = 0; i < pts.length; i++) {
@@ -1264,9 +1266,13 @@ var Scene3D = (function () {
         }
       }
 
-      // an arrow painted on the road: the whole shape in one piece
+      // an arrow painted on the road: the whole shape in one piece, and it
+      // sits in the middle of its lane
       function roadArrow(x, z, ang, turn) {
         var g = arrowGeo(turn, 1, 0.06);
+        g.computeBoundingBox();
+        var bb = g.boundingBox;
+        g.translate(-(bb.min.x + bb.max.x) / 2, -(bb.min.y + bb.max.y) / 2, 0);
         g.rotateX(-Math.PI / 2);
         g.rotateY(-ang);
         g.translate(x, ROAD_TOP + 0.03, z);
@@ -1361,6 +1367,7 @@ var Scene3D = (function () {
       // every lane, each with a red, a yellow and a green arrow
       var laneHousingGeo = new THREE.BoxGeometry(7.4, 15.4, 2.6);
       var laneBackGeo = new THREE.BoxGeometry(6.6, 14.6, 0.6);
+      var lanePanelGeo = new THREE.BoxGeometry(6.4, 14.4, 0.5);
       var laneLensGeo = new THREE.CylinderGeometry(1.55, 1.55, 0.4, 20);
       laneLensGeo.rotateX(Math.PI / 2);
       laneLensGeo.translate(0, 0, 1.15);
@@ -1371,6 +1378,8 @@ var Scene3D = (function () {
       };
       var laneHaloGeo = new THREE.SphereGeometry(2.0, 12, 8);
       var laneDarkMat = new THREE.MeshStandardMaterial({ color: 0x161b21, roughness: 0.5 });
+      // the frame of a lane signal is light, the lenses inside it are dark
+      var laneFrameMat = new THREE.MeshStandardMaterial({ color: 0x939ba5, roughness: 0.55 });
       // where the heads of the lanes stand, in the frame of the signal
       var laneXs = [-4, 6, 16];
 
@@ -1494,12 +1503,16 @@ var Scene3D = (function () {
               var lg = new THREE.Group();
               lg.position.set(laneXs[ti], 28, 0);
               lane.add(lg);
-              var lHouse = new THREE.Mesh(laneHousingGeo, housingMat);
+              var lHouse = new THREE.Mesh(laneHousingGeo, laneFrameMat);
               lg.add(lHouse);
               lHouse.userData.node = node2;
               pickables.push(lHouse);
+              // the dark panel the lenses sit in
+              var lPanel = new THREE.Mesh(lanePanelGeo, laneDarkMat);
+              lPanel.position.z = 0.8;
+              lg.add(lPanel);
               // the back of the head, so it does not look like a black slab
-              var lBack = new THREE.Mesh(laneBackGeo, poleMat);
+              var lBack = new THREE.Mesh(laneBackGeo, laneFrameMat);
               lBack.position.z = -1.5;
               lg.add(lBack);
               for (var lj = 0; lj < 3; lj++) {
