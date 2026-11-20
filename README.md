@@ -54,6 +54,7 @@ npx serve -l 8123
 | Force all-red | right click a signal | long press a signal |
 | Follow a vehicle | left click a vehicle | tap a vehicle |
 | Day and night | the Night button in the panel | the Night button in the panel |
+| Weather | the Weather button in the panel | the Weather button in the panel |
 
 ## Project layout
 
@@ -65,6 +66,7 @@ js/cars.js            vehicle catalogue: 20 types with their body, glass, trim a
 js/sim.js             simulation loop: spawning, car-following, signal phases, statistics
 js/scenery.js         the blocks between the roads: parks, the beach and the fairground
 js/city.js            the streets and the ring of houses around the map
+js/sky.js             the sky, the stars, the moon and the rain
 js/render.js          three.js scene, instanced vehicle meshes, camera and picking
 js/main.js            UI wiring, input handling (mouse, wheel, touch gestures)
 js/vendor/three.min.js  three.js r149, vendored so the app works offline

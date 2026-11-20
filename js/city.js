@@ -68,6 +68,55 @@ var City = (function () {
       pool(g);
     }
 
+    /* ------------------------------------------------------ street furniture
+
+       The things that stand on the sidewalk: a bin, a post box, a phone box,
+       a bike rack, a bench, a hydrant or the sign of a bus stop. */
+    function furniture(x, z, kind) {
+      if (kind === 0) {
+        // a bin
+        cyl(1.6, 3.2, x, 3.1, z, 0x3f4c42);
+        cyl(1.8, 0.45, x, 4.9, z, 0x2f3a33);
+      } else if (kind === 1) {
+        // a post box
+        bx(0.8, 1.4, 0.8, x, 2.2, z, 0x39414c);
+        cyl(1.35, 3.4, x, 4.6, z, 0x8a3b3b);
+        cyl(1.5, 0.5, x, 6.5, z, 0x6e2f2f);
+      } else if (kind === 2) {
+        // a phone box
+        bx(3.4, 5, 3.2, x, 4.0, z, 0x2c3a46);
+        bx(3.9, 0.5, 3.7, x, 6.7, z, 0x44505c);
+        bx(2.4, 2.8, 0.2, x, 4.2, z - 1.6, 0x7fa0b4);
+      } else if (kind === 3) {
+        // a bike rack with a few bikes in it
+        bx(0.4, 3.2, 0.4, x - 3, 3.1, z, 0x59616e);
+        bx(0.4, 3.2, 0.4, x + 3, 3.1, z, 0x59616e);
+        bx(6.4, 0.4, 0.4, x, 4.6, z, 0x59616e);
+        for (var b = 0; b < 3; b++) {
+          var bxx = x - 2 + b * 2;
+          bx(0.22, 1.7, 0.22, bxx, 3.9, z, 0x8d949e);
+          bx(1.8, 0.22, 0.22, bxx, 4.6, z, 0x8d949e);
+          bx(0.22, 0.9, 0.22, bxx + 0.8, 2.9, z, 0x8d949e);
+        }
+      } else if (kind === 4) {
+        // a bench
+        bx(4.6, 0.35, 1.5, x, 3.4, z, 0x8a5a3b);
+        bx(4.6, 1.3, 0.3, x, 4.0, z - 0.6, 0x8a5a3b);
+        bx(0.35, 1.6, 1.4, x - 1.9, 2.3, z, 0x39414c);
+        bx(0.35, 1.6, 1.4, x + 1.9, 2.3, z, 0x39414c);
+      } else if (kind === 5) {
+        // a hydrant
+        cyl(0.8, 2.4, x, 2.7, z, 0x9c3b32);
+        cyl(1.05, 0.45, x, 4.1, z, 0x7d3029);
+        bx(1.7, 0.7, 0.7, x, 3.3, z, 0x9c3b32);
+      } else {
+        // the sign of a bus stop
+        cyl(0.25, 6.4, x, 4.7, z, 0x59616e);
+        bx(2.6, 2.2, 0.3, x, 6.9, z, 0x2f6b8a);
+        bx(2.1, 1.5, 0.15, x, 6.8, z - 0.25, 0xd8dee6);
+      }
+    }
+
     /* --------------------------------------------------------- the sidewalk */
 
     function walk(x0, x1, z0, z1) {
@@ -110,11 +159,17 @@ var City = (function () {
     }
 
     // lamps along a sidewalk: `axis` is the way the walk runs, `dir` the way
-    // the road lies from it
+    // the road lies from it.  The things on the sidewalk stand between the
+    // lamps.
     function lampsAlong(axis, fixed, from, to, dir) {
       for (var t = from + 16; t < to - 16; t += 44) {
         if (axis === 'x') lamp(t, fixed, 0, dir);
         else lamp(fixed, t, dir, 0);
+      }
+      for (var f = from + 38; f < to - 16; f += 44) {
+        var kind = (rnd() * 7) | 0;
+        if (axis === 'x') furniture(f, fixed, kind);
+        else furniture(fixed, f, kind);
       }
     }
 

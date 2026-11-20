@@ -161,6 +161,9 @@ var Scene3D = (function () {
     bush: [0x2f6039, 0x3a7040, 0x27512f],
     trunk: 0x4a3a2a,
     leaf: [0x2c5734, 0x356639, 0x3f7440],
+    leafWarm: [0x8a5a24, 0xa8701f, 0x9c6a1f],   // the trees in autumn
+    blossom: [0xe8a8c0, 0xf2c4d6, 0xd894b4],    // the cherry trees
+    planter: 0x8d8577,
     stem: 0x3a7a42,
     petal: [0xf0efe4, 0xef7f9c, 0xf3c23c, 0xb58cf0, 0xee7a42, 0xe6dcff],
     stone: 0x7c7a70,
@@ -202,16 +205,50 @@ var Scene3D = (function () {
       add(g, hex);
     }
     function tree(x, z, scale) {
-      var th = 4.6 * scale;
-      var trunk = new THREE.CylinderGeometry(0.9 * scale, 1.5 * scale, th, 7);
+      var th = 5.2 * scale;
+      var trunk = new THREE.CylinderGeometry(0.8 * scale, 1.6 * scale, th, 8);
       trunk.translate(x, 0.4 + th / 2, z);
       add(trunk, GREENERY.trunk);
-      var top = 11 * scale;
-      for (var i = 0; i < 3; i++) {
-        var r = (4.4 - i * 0.8) * scale;
-        blob(x + (rnd() - 0.5) * 2.6 * scale, top - r - i * 0.5 * scale,
-          z + (rnd() - 0.5) * 2.6 * scale, r,
-          GREENERY.leaf[(rnd() * GREENERY.leaf.length) | 0], 0.82);
+      // two branches reaching out of the trunk
+      for (var b = 0; b < 2; b++) {
+        var ba = rnd() * Math.PI * 2;
+        var branch = new THREE.CylinderGeometry(0.3 * scale, 0.55 * scale, 3.6 * scale, 6);
+        branch.rotateZ(0.55);
+        branch.rotateY(ba);
+        branch.translate(x + Math.cos(ba) * 1.5 * scale, 0.4 + th + 0.4 * scale,
+          z + Math.sin(ba) * 1.5 * scale);
+        add(branch, GREENERY.trunk);
+      }
+      // every tree is in season of its own: most are green, a few are in
+      // autumn and a couple are cherry trees
+      var pick = rnd();
+      var leaves = GREENERY.leaf;
+      if (pick > 0.79) leaves = GREENERY.leafWarm;
+      else if (pick > 0.69) leaves = GREENERY.blossom;
+      // the crown, in layers, the widest one at the bottom
+      var top = 12 * scale;
+      for (var i = 0; i < 5; i++) {
+        var r = (4.8 - i * 0.62) * scale;
+        blob(x + (rnd() - 0.5) * 2.4 * scale, top - r * 0.85 - i * 0.95 * scale,
+          z + (rnd() - 0.5) * 2.4 * scale, r,
+          leaves[(rnd() * leaves.length) | 0], 0.78);
+      }
+    }
+
+    // a raised bed of flowers
+    function flowerBed(cx, cz, w, d) {
+      var soil = new THREE.BoxGeometry(w - 1.6, 0.5, d - 1.6);
+      soil.translate(cx, 0.55, cz);
+      add(soil, GREENERY.trunk);
+      // the stone rim around it
+      var rim = 0.7;
+      box(cx, 0.75, cz - d / 2 + rim / 2, w, 0.7, rim, GREENERY.planter);
+      box(cx, 0.75, cz + d / 2 - rim / 2, w, 0.7, rim, GREENERY.planter);
+      box(cx - w / 2 + rim / 2, 0.75, cz, rim, 0.7, d - rim * 2, GREENERY.planter);
+      box(cx + w / 2 - rim / 2, 0.75, cz, rim, 0.7, d - rim * 2, GREENERY.planter);
+      var n = Math.max(5, Math.round(w * d / 42));
+      for (var i = 0; i < n; i++) {
+        flower(cx + (rnd() - 0.5) * (w - 3), cz + (rnd() - 0.5) * (d - 3));
       }
     }
     function tuft(x, z) {
@@ -298,11 +335,25 @@ var Scene3D = (function () {
       tree(mirrorX(x0 + w * 0.78), y0 + d * 0.76, 0.92);
       tree(mirrorX(x0 + w * 0.30), y0 + d * 0.80, 1.15);
 
-      for (var u = 0; u < 6; u++) {
-        var ux = x0 + 10 + rnd() * (w - 20), uy = y0 + 10 + rnd() * (d - 20);
+      // the bushes grow in clumps
+      for (var u = 0; u < 7; u++) {
+        var ux = x0 + 12 + rnd() * (w - 24), uy = y0 + 12 + rnd() * (d - 24);
         if (inPond(ux, uy) || onWalk(ux, uy)) continue;
-        var rad = 2 + rnd() * 1.4;
-        blob(ux, 0.4 + rad * 0.6, uy, rad, GREENERY.bush[(rnd() * GREENERY.bush.length) | 0], 0.66);
+        var clump = 2 + ((rnd() * 3) | 0);
+        for (var cb = 0; cb < clump; cb++) {
+          var bx2 = ux + (rnd() - 0.5) * 9, by2 = uy + (rnd() - 0.5) * 7;
+          if (inPond(bx2, by2) || onWalk(bx2, by2)) continue;
+          var rad = 1.8 + rnd() * 1.5;
+          blob(bx2, 0.4 + rad * 0.6, by2, rad,
+            GREENERY.bush[(rnd() * GREENERY.bush.length) | 0], 0.66);
+        }
+      }
+
+      // two beds of flowers on the lawn
+      for (var fb = 0; fb < 2; fb++) {
+        var fbx = mirrorX(x0 + w * (fb ? 0.72 : 0.26)), fbz = y0 + d * (fb ? 0.36 : 0.60);
+        if (inPond(fbx, fbz) || onWalk(fbx, fbz)) continue;
+        flowerBed(fbx, fbz, 26, 16);
       }
 
       for (var t = 0; t < 18; t++) {
@@ -576,8 +627,11 @@ var Scene3D = (function () {
     // the lights of the city and the windows of the houses, they only show
     // when the sun is down
     var nightMode = false;
+    var rainMode = false;
     var nightMeshes = [];
     var groundMat = null;
+    var roadMat = null;
+    var sky = Sky.create(scene);
 
     var sun = new THREE.DirectionalLight(0xffffff, 0.52);
     sun.castShadow = true;
@@ -703,17 +757,41 @@ var Scene3D = (function () {
 
     // switch the map between day and night: the sun goes down, the sky goes
     // dark and the lights of the city come on
+    function applyLight() {
+      var dark = nightMode;
+      var wet = rainMode;
+      scene.background.set(dark ? 0x05070c : BG);
+      sun.color.set(dark ? (wet ? 0x7f92b8 : 0x8ea6d6) : (wet ? 0xd8dee6 : 0xffffff));
+      sun.intensity = dark ? (wet ? 0.16 : 0.26) : (wet ? 0.30 : 0.52);
+      amb.intensity = dark ? (wet ? 0.09 : 0.11) : (wet ? 0.15 : 0.18);
+      hemi.color.set(dark ? 0x27374f : (wet ? 0x8c97a4 : 0x9db4d6));
+      hemi.intensity = dark ? 0.30 : (wet ? 0.34 : 0.30);
+      fill.intensity = dark ? (wet ? 0.05 : 0.08) : (wet ? 0.10 : 0.16);
+      if (groundMat) groundMat.color.set(dark ? 0x080b10 : (wet ? 0x0d1116 : 0x10151b));
+      if (roadMat) {
+        roadMat.roughness = wet ? 0.32 : 0.95;
+        roadMat.metalness = wet ? 0.35 : 0;
+      }
+      if (scene.fog) scene.fog.color.setHex(dark ? 0x1a2230 : 0x6d7a88);
+    }
+
     function setNight(v) {
       nightMode = !!v;
-      scene.background.set(nightMode ? 0x05070c : BG);
-      sun.color.set(nightMode ? 0x8ea6d6 : 0xffffff);
-      sun.intensity = nightMode ? 0.26 : 0.52;
-      amb.intensity = nightMode ? 0.11 : 0.18;
-      hemi.color.set(nightMode ? 0x27374f : 0x9db4d6);
-      hemi.intensity = nightMode ? 0.3 : 0.3;
-      fill.intensity = nightMode ? 0.08 : 0.16;
-      if (groundMat) groundMat.color.set(nightMode ? 0x080b10 : 0x10151b);
+      sky.setNight(nightMode);
+      applyLight();
       for (var i = 0; i < nightMeshes.length; i++) nightMeshes[i].visible = nightMode;
+    }
+
+    // the weather: rain dims the light and leaves the road wet
+    function setRain(v) {
+      rainMode = !!v;
+      sky.setRain(rainMode);
+      if (rainMode) {
+        if (!scene.fog) scene.fog = new THREE.Fog(0x6d7a88, 420, 1250);
+      } else {
+        scene.fog = null;
+      }
+      applyLight();
     }
 
     function roadBand(x, z, ang, len, wide, mat, top) {
@@ -870,7 +948,9 @@ var Scene3D = (function () {
       staticGroup.add(poolMesh);
       nightMeshes.push(poolMesh);
 
-      var roadMat = new THREE.MeshStandardMaterial({ color: COL.road, roughness: 0.95 });
+      roadMat = new THREE.MeshStandardMaterial({
+        color: COL.road, roughness: rainMode ? 0.32 : 0.95, metalness: rainMode ? 0.35 : 0
+      });
       var boxMat = new THREE.MeshStandardMaterial({ color: COL.box, roughness: 0.95 });
       var edgeMat = new THREE.MeshStandardMaterial({ color: COL.edge, roughness: 0.9 });
       var markMat = new THREE.MeshStandardMaterial({ color: COL.mark, roughness: 0.9 });
@@ -1359,6 +1439,7 @@ var Scene3D = (function () {
 
       sceneryClock += dt || 0;
       for (var a = 0; a < sceneryActors.length; a++) sceneryActors[a].update(sceneryClock);
+      sky.update(dt || 0, cam.tx, cam.tz);
 
       updateCamera(dt || 0, sim);
       updateShadow();
@@ -1526,7 +1607,8 @@ var Scene3D = (function () {
       zoom: zoom,
       zoomBy: zoomBy,
       resize: resize,
-      setNight: setNight
+      setNight: setNight,
+      setRain: setRain
     };
   }
 

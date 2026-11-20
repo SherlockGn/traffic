@@ -37,6 +37,7 @@
     pause: document.getElementById('btn-pause'),
     reset: document.getElementById('btn-reset'),
     night: document.getElementById('btn-night'),
+    rain: document.getElementById('btn-rain'),
     closed: document.getElementById('in-closed'),
     typeBox: document.getElementById('car-type'),
     colorBox: document.getElementById('car-colors'),
@@ -263,6 +264,12 @@
     var on = el.night.textContent.indexOf('开') < 0;
     scene3d.setNight(on);
     el.night.textContent = on ? '夜景：开' : '夜景：关';
+  });
+
+  el.rain.addEventListener('click', function () {
+    var on = el.rain.textContent.indexOf('雨') < 0;
+    scene3d.setRain(on);
+    el.rain.textContent = on ? '天气：雨' : '天气：晴';
   });
 
   el.closed.addEventListener('change', function () { sim.setClosed(el.closed.checked); });
