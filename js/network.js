@@ -346,6 +346,7 @@ Network.prototype.makeLanes = function (from, to, dir) {
       len: isVertical(dir) ? CFG.BLOCK_Y : CFG.BLOCK_X,
       // which lane of the group this is: 0 left, 1 straight on, 2 right
       group: i, groupSize: offs.length,
+      groupLanes: lanes,
       arterial: arterial,
       cars: []
     };
@@ -388,9 +389,13 @@ Network.prototype.nextDirection = function (node, incomingDir, dest, hasRoom, cl
   ];
   var options = [];
   for (var i = 0; i < cands.length; i++) {
-    var lane = this.laneForTurn(node.outLanes[cands[i].dir], cands[i].turn);
+    var group = node.outLanes[cands[i].dir] || [];
+    var lane = this.laneForTurn(group, cands[i].turn);
     if (lane) {
-      options.push({ lane: lane, turn: cands[i].turn, w: cands[i].w, free: !hasRoom || hasRoom(lane) });
+      options.push({
+        lane: lane, group: group, dir: cands[i].dir, turn: cands[i].turn,
+        w: cands[i].w, free: !hasRoom || hasRoom(lane)
+      });
     } else if (!closed && this.leavesMap(node, cands[i].dir)) {
       // leaving on the intended side is what the driver wants
       var w = (dest !== undefined && cands[i].dir === dest) ? 1200

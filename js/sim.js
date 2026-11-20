@@ -42,6 +42,7 @@ function Vehicle(lane, s) {
   this.type = pick(CAR_TYPES);
   this.setType(this.type);
   this.next = null;      // {lane, turn} or {exit:true, dir}
+  this.ahead = null;     // the route for the junction after the next one
   this.committed = false; // past the stop line: the car goes through
   this.dest = -1;        // side of the map this car is heading for
   this.phase = 'lane';   // lane | curve | exit
@@ -224,25 +225,64 @@ Vehicle.prototype.chooseNext = function (sim) {
     if (!choice) { this.next = { exit: true, dir: this.lane.dir, turn: 'straight' }; return; }
   }
 
+  // On the wide roads of the middle of the map every lane belongs to one
+  // turn: the left turn has its own lane and so has the right turn.  Which
+  // lane the car takes therefore depends on the turn it makes at the far end
+  // of the road, and that route has to be worked out first.  It is kept until
+  // the car is on the road.
+  if (choice.group && choice.group.length > 1) {
+    var aheadNode = net.nodes[choice.lane.to];
+    var ahead = net.nextDirection(aheadNode, choice.dir, this.dest, function (lane) {
+      return sim.laneHasRoom(lane, self.len);
+    }, sim.closed);
+    if (ahead && !ahead.exit) {
+      this.ahead = { lane: ahead.lane, turn: ahead.turn, node: aheadNode.id };
+      choice.lane = net.laneForTurn(choice.group, ahead.turn);
+    }
+  }
+  this.makeCurve(choice, node);
+};
+
+// The curve the car steers through into the next lane: a turn gets a proper
+// curve, a car that only moves over into the lane beside it gets a smooth
+// shift, and a car that stays in its lane gets none at all.
+Vehicle.prototype.makeCurve = function (choice, node) {
+  var from = this.lane.p1;
   if (choice.exit) {
     this.next = { exit: true, dir: choice.dir, turn: choice.turn };
     this.exitNode = node;
     this.exitDir = choice.dir;
     var ed = DIRS[choice.dir];
+    var base = { x: node.x - ed.y * CFG.LANE_OFF, y: node.y + ed.x * CFG.LANE_OFF };
     if (choice.turn === 'straight') {
-      this.curve = null;
-      this.curveIn = 0;
-      this.curveOut = 0;
+      // the car drives straight off the map, it only has to move over into
+      // the lane of the road it leaves by
+      var shift = (base.x - from.x) * -this.lane.vy + (base.y - from.y) * this.lane.vx;
+      if (Math.abs(shift) < 0.01) {
+        this.curve = null;
+        this.curveIn = 0;
+        this.curveOut = 0;
+      } else {
+        this.curveIn = Math.min(14, Math.abs(shift));
+        this.curveOut = 0;
+        var d0 = Math.min(16, Math.abs(shift) * 1.1);
+        var q0 = { x: from.x - this.lane.vx * this.curveIn, y: from.y - this.lane.vy * this.curveIn };
+        this.curve = buildCurve(
+          q0,
+          { x: q0.x + this.lane.vx * d0, y: q0.y + this.lane.vy * d0 },
+          { x: base.x - ed.x * d0, y: base.y - ed.y * d0 },
+          base
+        );
+        this.exitFrom = base;
+      }
     } else {
       this.curveIn = turnOffset(choice.turn);
       this.curveOut = this.curveIn;
       var e = handleLen(choice.turn);
-      var nd = net.nodes[this.lane.to];
-      var base = { x: nd.x - ed.y * CFG.LANE_OFF, y: nd.y + ed.x * CFG.LANE_OFF };
       var to = { x: base.x + ed.x * this.curveOut, y: base.y + ed.y * this.curveOut };
       var p0 = {
-        x: this.lane.p1.x - this.lane.vx * this.curveIn,
-        y: this.lane.p1.y - this.lane.vy * this.curveIn
+        x: from.x - this.lane.vx * this.curveIn,
+        y: from.y - this.lane.vy * this.curveIn
       };
       this.curve = buildCurve(
         p0,
@@ -254,24 +294,38 @@ Vehicle.prototype.chooseNext = function (sim) {
     }
     return;
   }
-  var from = this.lane.p1;
-  var to = choice.lane.p0;
-  if (choice.turn === 'straight') {
+
+  var to2 = choice.lane.p0;
+  // how far to the side the car has to move
+  var lateral = (to2.x - from.x) * -this.lane.vy + (to2.y - from.y) * this.lane.vx;
+  if (choice.turn === 'straight' && Math.abs(lateral) < 0.01) {
     // the two lanes meet at the same point, there is nothing to steer through
     this.curve = null;
     this.curveIn = 0;
     this.curveOut = 0;
+  } else if (choice.turn === 'straight') {
+    // the car goes straight on, but it moves over into the lane beside it
+    this.curveIn = Math.min(14, Math.abs(lateral));
+    this.curveOut = 0;
+    var d = Math.min(16, Math.abs(lateral) * 1.1);
+    var q1 = { x: from.x - this.lane.vx * this.curveIn, y: from.y - this.lane.vy * this.curveIn };
+    this.curve = buildCurve(
+      q1,
+      { x: q1.x + this.lane.vx * d, y: q1.y + this.lane.vy * d },
+      { x: to2.x - choice.lane.vx * d, y: to2.y - choice.lane.vy * d },
+      to2
+    );
   } else {
     this.curveIn = turnOffset(choice.turn);
     this.curveOut = this.curveIn;
-    var d = handleLen(choice.turn);
-    var p0 = { x: from.x - this.lane.vx * this.curveIn, y: from.y - this.lane.vy * this.curveIn };
-    var p1 = { x: to.x + choice.lane.vx * this.curveOut, y: to.y + choice.lane.vy * this.curveOut };
+    var dd = handleLen(choice.turn);
+    var p0b = { x: from.x - this.lane.vx * this.curveIn, y: from.y - this.lane.vy * this.curveIn };
+    var p1b = { x: to2.x + choice.lane.vx * this.curveOut, y: to2.y + choice.lane.vy * this.curveOut };
     this.curve = buildCurve(
-      p0,
-      { x: p0.x + this.lane.vx * d, y: p0.y + this.lane.vy * d },
-      { x: p1.x - choice.lane.vx * d, y: p1.y - choice.lane.vy * d },
-      p1
+      p0b,
+      { x: p0b.x + this.lane.vx * dd, y: p0b.y + this.lane.vy * dd },
+      { x: p1b.x - choice.lane.vx * dd, y: p1b.y - choice.lane.vy * dd },
+      p1b
     );
   }
   this.next = { lane: choice.lane, turn: choice.turn };
@@ -409,6 +463,7 @@ Vehicle.prototype.reenter = function (sim) {
   this.phase = 'lane';
   this.curve = null;
   this.next = null;
+  this.ahead = null;
   this.committed = false;
   this.fresh = false;
   this.exitPath = null;
@@ -417,6 +472,25 @@ Vehicle.prototype.reenter = function (sim) {
   this.dest = -1;
   this.v = Math.min(this.v, CFG.CURVE_VMAX);
   this.insert();
+
+  // The route is worked out right away, so that the car can be put in the
+  // lane that belongs to the turn it is going to make further on.
+  this.chooseNext(sim);
+  if (this.next && !this.next.exit) {
+    var group = sim.net.nodes[this.lane.from].outLanes[this.lane.dir];
+    if (group && group.length > 1) {
+      var turn = this.next.turn;
+      var want = sim.net.laneForTurn(group, turn);
+      if (want && want !== this.lane) {
+        this.remove();
+        this.lane = want;
+        this.s = -18;
+        this.insert();
+        this.next = null;
+        this.makeCurve({ lane: want, turn: turn }, sim.net.nodes[want.to]);
+      }
+    }
+  }
 };
 
 Vehicle.prototype.enterNextLane = function (sim) {
@@ -433,6 +507,14 @@ Vehicle.prototype.enterNextLane = function (sim) {
   this.fresh = true;
   this.passCount++;
   sim.flow++;
+
+  // The route for the junction after this one may already be known: it was
+  // worked out when the car picked the lane of the road it is on now.
+  var ahead = this.ahead;
+  this.ahead = null;
+  if (ahead && ahead.lane && ahead.node === this.lane.to) {
+    this.makeCurve({ lane: ahead.lane, turn: ahead.turn }, sim.net.nodes[this.lane.to]);
+  }
 
   this.insert();
 };
@@ -479,6 +561,7 @@ Simulation.prototype.setClosed = function (on) {
     } else if (car.next && car.next.exit && !car.committed) {
       // it had not reached the junction yet, so it can still pick another road
       car.next = null;
+      car.ahead = null;
       car.curve = null;
       car.curveIn = 0;
       car.curveOut = 0;
@@ -665,6 +748,8 @@ Simulation.prototype.populate = function (count) {
       s = Math.min(head - 20, -7);
     } else {
       lane = net.lanes[pick(ids)];
+      // on the wide roads the car starts in the middle lane
+      if (lane.groupLanes && lane.groupLanes.length > 1) lane = lane.groupLanes[1];
       s = 16 + Math.random() * (lane.len - 50);
       var clear = true;
       for (var k = 0; k < lane.cars.length; k++) {
@@ -711,7 +796,9 @@ Simulation.prototype.addCar = function (type, color) {
   for (i = 0; i < lanes.length; i++) {
     var s = freeSpot(lanes[i].lane, carLen);
     if (s < 0) continue;
-    var car = new Vehicle(lanes[i].lane, s);
+    var lane2 = lanes[i].lane;
+    if (lane2.groupLanes && lane2.groupLanes.length > 1) lane2 = lane2.groupLanes[1];
+    var car = new Vehicle(lane2, s);
     car.setType(type);
     car.color = color;
     car.dest = this.pickDestination(backOf(lanes[i].lane.dir));
