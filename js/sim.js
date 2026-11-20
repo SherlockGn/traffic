@@ -1,7 +1,7 @@
 'use strict';
 
 var STOP_BACK = 32;     // how far before the node a car waits
-var CHOOSE_AHEAD = 30;  // how far before the junction the route is picked
+var CHOOSE_AHEAD = 46;  // how far before the junction the route is picked
 // the cars that drive around on their own; the rest of the catalogue can
 // only be put on the map by hand
 var CAR_TYPES = ['sedan', 'sedan', 'sedan', 'suv', 'truck', 'sport', 'van'];
@@ -301,8 +301,12 @@ Vehicle.prototype.update = function (dt, sim) {
 
   var lane = this.lane;
   // the route is picked shortly before the junction: any earlier and the road
-  // it leads to may be full by the time the car gets there
-  if (!this.next && lane.len - this.s <= CHOOSE_AHEAD) this.chooseNext(sim);
+  // it leads to may be full by the time the car gets there.  On the wide
+  // roads of the middle of the map the lane goes with the route, so there the
+  // route is picked as soon as the car is on the road.
+  if (!this.next && (lane.arterial || lane.len - this.s <= CHOOSE_AHEAD)) {
+    this.chooseNext(sim);
+  }
 
   var info = this.leaderInfo(sim);
   // A car that has just come through the junction keeps creeping forward
@@ -447,8 +451,21 @@ function Simulation(net) {
   this.autoMode = true;
   this.paused = false;
   this.closed = false;
+  // a red light does not hold a car that wants to turn right
+  this.rightOnRed = true;
   this.nextId = 1;
+  this.setRightOnRed(this.rightOnRed);
 }
+
+// Right turn on red: when it is on, the red light of the approach does not
+// stop a car that is going to turn right.  When it is off, the right turn
+// has to wait for the green.
+Simulation.prototype.setRightOnRed = function (on) {
+  this.rightOnRed = !!on;
+  for (var i = 0; i < this.net.nodes.length; i++) {
+    this.net.nodes[i].light.rightOnRed = this.rightOnRed;
+  }
+};
 
 // Closed mode: no new car comes in and no car drives off the map.  Cars that
 // were already on their way out are turned back onto the road.
@@ -522,14 +539,29 @@ Simulation.prototype.mayCross = function (car, node) {
   // already past the stop line: it is in the junction, it goes through
   if (car.committed) return true;
 
-  var sig = light.signal(dir);
   var stopS = car.lane.len - STOP_BACK - car.len / 2;
   var distToStop = stopS - car.s;
 
-  if (sig === 'stop') return false;
-  if (sig === 'caution') {
-    var brakeDist = (car.v * car.v) / (2 * CFG.DECEL) + 8;
-    if (distToStop > brakeDist) return false;
+  // which way is this car going to turn?  The route is picked before the
+  // stop line, so by the time the car gets here it knows.
+  var turn = 'straight';
+  if (car.next && car.next.turn) turn = car.next.turn;
+  var axis = isVertical(dir) ? 'V' : 'H';
+
+  if (turn === 'left' && light.arrows) {
+    // the left turn waits for its own arrow
+    if (light.arrowSignal(axis, 'left') !== 'go') return false;
+  } else if (turn === 'right') {
+    // a right turn is not held by the red light, unless the driver has
+    // turned that rule off
+    if (light.arrowSignal(axis, 'right') !== 'go') return false;
+  } else {
+    var sig = light.signal(dir);
+    if (sig === 'stop') return false;
+    if (sig === 'caution') {
+      var brakeDist = (car.v * car.v) / (2 * CFG.DECEL) + 8;
+      if (distToStop > brakeDist) return false;
+    }
   }
 
   // crossing slots: opposing streams never meet, perpendicular ones do

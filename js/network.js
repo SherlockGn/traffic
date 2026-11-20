@@ -51,15 +51,36 @@ function TrafficLight(node) {
   this.allRed = false;
   this.state = 'VA';
   this.stateTimer = 0;
+  // a junction with protected turns runs its own set of phases
+  this.arrows = false;
+  // a right turn is not held by the red light unless the driver says so
+  this.rightOnRed = true;
 }
 
+// the phases of a junction with protected turns, in the order they run
+var ARROW_ORDER = ['VA', 'YA', 'LA', 'HB', 'YB', 'LB'];
+
+TrafficLight.prototype.leftTime = function () {
+  return Math.max(4, Math.round(this.greenTime * 0.5));
+};
+
 TrafficLight.prototype.cycleLen = function () {
+  if (this.arrows) {
+    return 2 * (this.greenTime + this.yellowTime + this.leftTime());
+  }
   return 2 * (this.greenTime + this.yellowTime);
 };
 
 // 'go' | 'caution' | 'stop' for the V (north-south) or H (east-west) axis
 TrafficLight.prototype.axisSignal = function (axis) {
   if (this.allRed) return 'stop';
+  if (this.arrows) {
+    var p = this.currentPhase();
+    if (p.axis !== axis) return 'stop';
+    if (p.kind === 'through') return 'go';
+    if (p.kind === 'yellow') return 'caution';
+    return 'stop';
+  }
   if (this.manual) {
     if (this.state === 'VA') return axis === 'V' ? 'go' : 'stop';
     if (this.state === 'YA') return axis === 'V' ? 'caution' : 'stop';
@@ -72,6 +93,65 @@ TrafficLight.prototype.axisSignal = function (axis) {
   if (u < this.greenTime) return 'go';
   if (u < this.greenTime + this.yellowTime) return 'caution';
   return 'stop';
+};
+
+// The phase the junction is in right now: which axis is going, and whether
+// it is the through movement or the left turn arrow.
+TrafficLight.prototype.currentPhase = function () {
+  if (this.arrows) {
+    if (this.manual) {
+      if (this.state === 'VA') return { axis: 'V', kind: 'through' };
+      if (this.state === 'YA') return { axis: 'V', kind: 'yellow' };
+      if (this.state === 'LA') return { axis: 'V', kind: 'left' };
+      if (this.state === 'HB') return { axis: 'H', kind: 'through' };
+      if (this.state === 'YB') return { axis: 'H', kind: 'yellow' };
+      return { axis: 'H', kind: 'left' };
+    }
+    return this.arrowPhase();
+  }
+  if (this.manual) {
+    if (this.state === 'VA') return { axis: 'V', kind: 'through' };
+    if (this.state === 'YA') return { axis: 'V', kind: 'yellow' };
+    if (this.state === 'HB') return { axis: 'H', kind: 'through' };
+    return { axis: 'H', kind: 'yellow' };
+  }
+  var cycle = this.cycleLen();
+  var uV = (this.clock + this.offV) % cycle;
+  var uH = (this.clock + this.offH) % cycle;
+  if (uV < this.greenTime) return { axis: 'V', kind: 'through' };
+  if (uV < this.greenTime + this.yellowTime) return { axis: 'V', kind: 'yellow' };
+  if (uH < this.greenTime) return { axis: 'H', kind: 'through' };
+  if (uH < this.greenTime + this.yellowTime) return { axis: 'H', kind: 'yellow' };
+  return { axis: 'H', kind: 'yellow' };
+};
+
+// the phase of a junction with protected turns, worked out from the clock
+TrafficLight.prototype.arrowPhase = function () {
+  var g = this.greenTime, y = this.yellowTime, l = this.leftTime();
+  var list = [
+    ['V', 'through', g], ['V', 'yellow', y], ['V', 'left', l],
+    ['H', 'through', g], ['H', 'yellow', y], ['H', 'left', l]
+  ];
+  var u = this.clock % this.cycleLen();
+  for (var i = 0; i < list.length; i++) {
+    if (u < list[i][2]) return { axis: list[i][0], kind: list[i][1] };
+    u -= list[i][2];
+  }
+  return { axis: 'V', kind: 'through' };
+};
+
+// The state of a turn arrow: 'go' when the turn may go, 'stop' when it may
+// not.  A right turn is not held by the red light unless the driver turns
+// that rule off.
+TrafficLight.prototype.arrowSignal = function (axis, turn) {
+  if (this.allRed) return 'stop';
+  if (turn === 'right') {
+    if (this.rightOnRed) return 'go';
+    return this.axisSignal(axis) === 'go' ? 'go' : 'stop';
+  }
+  if (!this.arrows) return this.axisSignal(axis) === 'go' ? 'go' : 'stop';
+  var p = this.currentPhase();
+  return (p.axis === axis && p.kind === 'left') ? 'go' : 'stop';
 };
 
 TrafficLight.prototype.signal = function (dir) {
@@ -94,7 +174,12 @@ TrafficLight.prototype.advance = function (dt, auto) {
   if (this.state === 'YA' || this.state === 'YB') {
     this.stateTimer += dt;
     if (this.stateTimer >= this.yellowTime) {
-      this.state = this.state === 'YA' ? 'HB' : 'VA';
+      if (this.arrows) {
+        var i = ARROW_ORDER.indexOf(this.state);
+        this.state = ARROW_ORDER[(i + 1) % ARROW_ORDER.length];
+      } else {
+        this.state = this.state === 'YA' ? 'HB' : 'VA';
+      }
       this.stateTimer = 0;
     }
   }
@@ -105,6 +190,13 @@ TrafficLight.prototype.beginManual = function () {
   if (this.manual) return;
   this.manual = true;
   this.stateTimer = 0;
+  if (this.arrows) {
+    var p = this.arrowPhase();
+    if (p.kind === 'left') this.state = p.axis === 'V' ? 'LA' : 'LB';
+    else if (p.kind === 'yellow') this.state = p.axis === 'V' ? 'YA' : 'YB';
+    else this.state = p.axis === 'V' ? 'VA' : 'HB';
+    return;
+  }
   var v = this.axisSignal('V'), h = this.axisSignal('H');
   if (v === 'go') this.state = 'VA';
   else if (v === 'caution') this.state = 'YA';
@@ -115,7 +207,18 @@ TrafficLight.prototype.beginManual = function () {
 
 // mouse click: hand over the green to the other axis (yellow first)
 TrafficLight.prototype.cycle = function () {
-  if (this.allRed) { this.allRed = false; this.state = 'VA'; this.stateTimer = 0; return; }
+  if (this.allRed) {
+    this.allRed = false;
+    this.state = this.arrows ? 'VA' : 'VA';
+    this.stateTimer = 0;
+    return;
+  }
+  if (this.arrows) {
+    var i = ARROW_ORDER.indexOf(this.state);
+    this.state = ARROW_ORDER[(i + 1) % ARROW_ORDER.length];
+    this.stateTimer = 0;
+    return;
+  }
   if (this.state === 'VA') { this.state = 'YA'; this.stateTimer = 0; }
   else if (this.state === 'YA') { this.state = 'HB'; this.stateTimer = 0; }
   else if (this.state === 'HB') { this.state = 'YB'; this.stateTimer = 0; }
@@ -129,13 +232,19 @@ TrafficLight.prototype.toggleAllRed = function () {
 
 TrafficLight.prototype.label = function () {
   if (this.allRed) return '全红';
-  if (this.state === 'YA') return '纵向黄灯';
-  if (this.state === 'YB') return '横向黄灯';
-  if (this.manual) return this.state === 'VA' ? '纵向绿灯' : '横向绿灯';
-  return this.axisSignal('V') === 'go' ? '纵向绿灯' : '横向绿灯';
+  var p = this.currentPhase();
+  if (p.kind === 'left') return p.axis === 'V' ? '纵向左转' : '横向左转';
+  if (p.kind === 'yellow') return p.axis === 'V' ? '纵向黄灯' : '横向黄灯';
+  return p.axis === 'V' ? '纵向绿灯' : '横向绿灯';
 };
 
 /* ---------------------------------------------------------------- Network */
+
+// The junction in the middle of the map is a big one: every approach has
+// three lanes, one for the left turn, one to go straight on and one for the
+// right turn.  The lanes sit next to each other in the space that the
+// ordinary roads use for one.
+var ARTERYAL_OFF = [5, 15, 25];
 
 function Network() {
   this.nodes = [];
@@ -153,7 +262,11 @@ Network.prototype.build = function () {
         id: r * CFG.COLS + c, col: c, row: r,
         x: CFG.MARGIN_X + c * CFG.BLOCK_X,
         y: CFG.MARGIN_Y + r * CFG.BLOCK_Y,
-        out: {}, in: {}, light: null,
+        out: {}, in: {}, outLanes: {}, inLanes: {}, light: null,
+        // the junction in the middle of the map
+        center: c === (CFG.COLS - 1) / 2 && r === (CFG.ROWS - 1) / 2,
+        // the wide junctions have to be big enough for their roads
+        box: (c === (CFG.COLS - 1) / 2 || r === (CFG.ROWS - 1) / 2) ? 60 : CFG.BOX,
         slots: { 0: null, 1: null, 2: null, 3: null }
       };
       this.nodes.push(node);
@@ -166,11 +279,18 @@ Network.prototype.build = function () {
       var v = DIRS[d];
       var nb = this.nodeAt(n.col + v.x, n.row + v.y);
       if (!nb) continue;
-      var lane = this.makeLane(n, nb, d);
-      n.out[d] = lane.id;
-      nb.in[backOf(d)] = lane.id;
+      var lanes = this.makeLanes(n, nb, d);
+      n.outLanes[d] = lanes;
+      nb.inLanes[backOf(d)] = lanes;
+      n.out[d] = lanes[0].id;
+      nb.in[backOf(d)] = lanes[0].id;
     }
     n.light = new TrafficLight(n);
+    // the junction in the middle of the map has protected turns: it shows
+    // arrows for the left and the right turn
+    if (n.col === (CFG.COLS - 1) / 2 && n.row === (CFG.ROWS - 1) / 2) {
+      n.light.arrows = true;
+    }
     // green wave: the offset grows with the distance travelled along a corridor.
     // The two axes have blocks of different lengths, so each gets its own step.
     var waveX = (CFG.BLOCK_X / CFG.VMAX) * CFG.WAVE_K;
@@ -198,21 +318,31 @@ Network.prototype.nodeAt = function (col, row) {
   return this.nodes[row * CFG.COLS + col];
 };
 
-Network.prototype.makeLane = function (from, to, dir) {
+Network.prototype.makeLanes = function (from, to, dir) {
   var v = DIRS[dir];
   var rx = -v.y, ry = v.x;
-  var off = CFG.LANE_OFF;
-  var lane = {
-    id: from.id + '>' + to.id,
-    from: from.id, to: to.id, dir: dir,
-    vx: v.x, vy: v.y,
-    p0: { x: from.x + rx * off, y: from.y + ry * off },
-    p1: { x: to.x + rx * off, y: to.y + ry * off },
-    len: isVertical(dir) ? CFG.BLOCK_Y : CFG.BLOCK_X,
-    cars: []
-  };
-  this.lanes[lane.id] = lane;
-  return lane;
+  // the roads at the junction in the middle have three lanes
+  var arterial = from.center || to.center;
+  var offs = arterial ? ARTERYAL_OFF : [CFG.LANE_OFF];
+  var lanes = [];
+  for (var i = 0; i < offs.length; i++) {
+    var off = offs[i];
+    var lane = {
+      id: from.id + '>' + to.id + (offs.length > 1 ? '#' + i : ''),
+      from: from.id, to: to.id, dir: dir,
+      vx: v.x, vy: v.y,
+      p0: { x: from.x + rx * off, y: from.y + ry * off },
+      p1: { x: to.x + rx * off, y: to.y + ry * off },
+      len: isVertical(dir) ? CFG.BLOCK_Y : CFG.BLOCK_X,
+      // which lane of the group this is: 0 left, 1 straight on, 2 right
+      group: i, groupSize: offs.length,
+      arterial: arterial,
+      cars: []
+    };
+    this.lanes[lane.id] = lane;
+    lanes.push(lane);
+  }
+  return lanes;
 };
 
 Network.prototype.lane = function (id) { return this.lanes[id]; };
@@ -228,6 +358,15 @@ Network.prototype.leavesMap = function (node, dir) {
   return !this.nodeAt(node.col + v.x, node.row + v.y);
 };
 
+// The lane of a group that a turn uses: the left turn has its own lane, the
+// right turn has its own, and what is left in the middle goes straight on.
+Network.prototype.laneForTurn = function (group, turn) {
+  if (!group || !group.length) return null;
+  if (group.length < 3) return group[0];
+  var idx = turn === 'right' ? 2 : (turn === 'straight' ? 1 : 0);
+  return group[idx];
+};
+
 // `closed` keeps every car on the map: driving off it is not an option, so
 // a car that reaches the edge has to turn back into the city.
 Network.prototype.nextDirection = function (node, incomingDir, dest, hasRoom, closed) {
@@ -239,7 +378,7 @@ Network.prototype.nextDirection = function (node, incomingDir, dest, hasRoom, cl
   ];
   var options = [];
   for (var i = 0; i < cands.length; i++) {
-    var lane = this.laneFrom(node, cands[i].dir);
+    var lane = this.laneForTurn(node.outLanes[cands[i].dir], cands[i].turn);
     if (lane) {
       options.push({ lane: lane, turn: cands[i].turn, w: cands[i].w, free: !hasRoom || hasRoom(lane) });
     } else if (!closed && this.leavesMap(node, cands[i].dir)) {

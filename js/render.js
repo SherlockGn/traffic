@@ -77,6 +77,23 @@ var Scene3D = (function () {
     };
   }
 
+  // an arrow lens: a plate in the shape of an arrow.  The arrow points to
+  // the left of the driver, so it is the left turn.
+  function arrowPlate() {
+    var s = new THREE.Shape();
+    s.moveTo(-1.7, -0.32);
+    s.lineTo(0.45, -0.32);
+    s.lineTo(0.45, -0.85);
+    s.lineTo(1.75, 0);
+    s.lineTo(0.45, 0.85);
+    s.lineTo(0.45, 0.32);
+    s.lineTo(-1.7, 0.32);
+    s.closePath();
+    var g = new THREE.ExtrudeGeometry(s, { depth: 0.35, bevelEnabled: false });
+    g.translate(0, 0, 1.5);
+    return g;
+  }
+
   /* ---------------------------------------------------------------- cars
      Every model keeps the same footprint but has its own silhouette: the
      body is a box whose top is pulled in, the greenhouse sits on top of it
@@ -185,6 +202,12 @@ var Scene3D = (function () {
     var blocks = [];
     var rnd = seeded(20261118);
     var half = CFG.ROAD_W / 2 + 4;
+
+    // how much room a block leaves to the road on one side: the wide roads
+    // of the middle of the map take three lanes and need more of it
+    function sideHalf(arterial) {
+      return (arterial ? 30 : CFG.ROAD_W / 2) + 4;
+    }
 
     function add(geo, hex) { parts.push({ geo: geo, color: rgb(hex) }); }
     function box(x, y, z, w, h, d, hex) {
@@ -449,10 +472,13 @@ var Scene3D = (function () {
 
     for (var c = 0; c < CFG.COLS - 1; c++) {
       for (var r = 0; r < CFG.ROWS - 1; r++) {
-        var x0 = CFG.MARGIN_X + c * CFG.BLOCK_X + half;
-        var x1 = CFG.MARGIN_X + (c + 1) * CFG.BLOCK_X - half;
-        var y0 = CFG.MARGIN_Y + r * CFG.BLOCK_Y + half;
-        var y1 = CFG.MARGIN_Y + (r + 1) * CFG.BLOCK_Y - half;
+        // the roads at the junction in the middle are wider, so the blocks
+        // next to them have to give up the room
+        var midC = (CFG.COLS - 1) / 2, midR = (CFG.ROWS - 1) / 2;
+        var x0 = CFG.MARGIN_X + c * CFG.BLOCK_X + sideHalf(c === midC);
+        var x1 = CFG.MARGIN_X + (c + 1) * CFG.BLOCK_X - sideHalf(c + 1 === midC);
+        var y0 = CFG.MARGIN_Y + r * CFG.BLOCK_Y + sideHalf(r === midR);
+        var y1 = CFG.MARGIN_Y + (r + 1) * CFG.BLOCK_Y - sideHalf(r + 1 === midR);
         blocks.push({ x0: x0, x1: x1, y0: y0, y1: y1 });
 
         var built = null;
@@ -1040,34 +1066,54 @@ var Scene3D = (function () {
 
       for (i = 0; i < net.nodes.length; i++) {
         var node = net.nodes[i];
+        var box = node.box || CFG.BOX;
         for (d = 0; d < 4; d++) {
           var v = DIRS[d];
           var ang = Math.atan2(v.y, v.x);
           var lane = net.laneFrom(node, d);
+          // the wide roads of the middle of the map have three lanes
+          var wide = lane && lane.arterial ? 60 : CFG.ROAD_W;
           var len;
           if (lane) {
-            len = lane.len - CFG.BOX;
-            roadBand(node.x + v.x * (CFG.BOX / 2 + len / 2), node.y + v.y * (CFG.BOX / 2 + len / 2),
-              ang, len, CFG.ROAD_W, roadMat, ROAD_TOP);
-            for (var s = CFG.BOX / 2; s < lane.len - CFG.BOX / 2; s += 22) {
+            len = lane.len - box;
+            roadBand(node.x + v.x * (box / 2 + len / 2), node.y + v.y * (box / 2 + len / 2),
+              ang, len, wide, roadMat, ROAD_TOP);
+            for (var s = box / 2; s < lane.len - box / 2; s += 22) {
               dashes.push({ x: node.x + v.x * (s + 5), z: node.y + v.y * (s + 5), ang: ang });
+            }
+            if (lane.arterial) {
+              // the lines between the three lanes
+              var rx = -v.y, rz = v.x;
+              for (var dl = 0; dl < 2; dl++) {
+                var loff = 10 + dl * 10;
+                for (var s2 = box / 2; s2 < lane.len - box / 2; s2 += 22) {
+                  dashes.push({
+                    x: node.x + v.x * (s2 + 5) + rx * loff,
+                    z: node.y + v.y * (s2 + 5) + rz * loff, ang: ang
+                  });
+                  dashes.push({
+                    x: node.x + v.x * (s2 + 5) - rx * loff,
+                    z: node.y + v.y * (s2 + 5) - rz * loff, ang: ang
+                  });
+                }
+              }
             }
             // the manholes of the road
             var mh = 1 + ((Math.random() * 2) | 0);
             for (var mi = 0; mi < mh; mi++) {
-              var ms = CFG.BOX / 2 + 18 + Math.random() * (len - 36);
+              var ms = box / 2 + 18 + Math.random() * (len - 36);
               manholes.push({ x: node.x + v.x * ms, z: node.y + v.y * ms });
             }
           } else {
-            len = CFG.STUB - CFG.BOX / 2;
-            roadBand(node.x + v.x * (CFG.BOX / 2 + len / 2), node.y + v.y * (CFG.BOX / 2 + len / 2),
+            len = CFG.STUB - box / 2;
+            roadBand(node.x + v.x * (box / 2 + len / 2), node.y + v.y * (box / 2 + len / 2),
               ang, len, CFG.ROAD_W, roadMat, ROAD_TOP);
           }
         }
 
         var jb = new THREE.Mesh(unitBox, boxMat);
         jb.position.set(node.x, ROAD_TOP / 2, node.y);
-        jb.scale.set(CFG.BOX, ROAD_TOP, CFG.BOX);
+        jb.scale.set(box, ROAD_TOP, box);
         jb.receiveShadow = true;
         staticGroup.add(jb);
 
@@ -1078,9 +1124,10 @@ var Scene3D = (function () {
           var vv = DIRS[il.dir];
           var ss = il.len - STOP_BACK - 2;
           stops.push({
-            x: il.p0.x + vv.x * ss,
-            z: il.p0.y + vv.y * ss,
-            ang: Math.atan2(vv.y, vv.x)
+            x: node.x + vv.x * ss,
+            z: node.y + vv.y * ss,
+            ang: Math.atan2(vv.y, vv.x),
+            wide: il.arterial ? 27 : 17
           });
         }
       }
@@ -1089,17 +1136,19 @@ var Scene3D = (function () {
       var edges = [];
       for (i = 0; i < net.nodes.length; i++) {
         var nd = net.nodes[i];
+        var box2 = nd.box || CFG.BOX;
         for (d = 0; d < 4; d++) {
           var vv2 = DIRS[d];
           var ang2 = Math.atan2(vv2.y, vv2.x);
           var lane2 = net.laneFrom(nd, d);
-          var len2 = lane2 ? lane2.len - CFG.BOX : CFG.STUB - CFG.BOX / 2;
-          var start = lane2 ? CFG.BOX / 2 : CFG.BOX / 2;
+          var halfW = lane2 && lane2.arterial ? 30 : CFG.ROAD_W / 2;
+          var len2 = lane2 ? lane2.len - box2 : CFG.STUB - box2 / 2;
+          var start = box2 / 2;
           var mid = nd.x + vv2.x * (start + len2 / 2);
           var midz = nd.y + vv2.y * (start + len2 / 2);
           var rx = -vv2.y, ry = vv2.x;
-          edges.push({ x: mid + rx * (CFG.ROAD_W / 2 - 1.4), z: midz + ry * (CFG.ROAD_W / 2 - 1.4), ang: ang2, len: len2 });
-          edges.push({ x: mid - rx * (CFG.ROAD_W / 2 - 1.4), z: midz - ry * (CFG.ROAD_W / 2 - 1.4), ang: ang2, len: len2 });
+          edges.push({ x: mid + rx * (halfW - 1.4), z: midz + ry * (halfW - 1.4), ang: ang2, len: len2 });
+          edges.push({ x: mid - rx * (halfW - 1.4), z: midz - ry * (halfW - 1.4), ang: ang2, len: len2 });
         }
       }
 
@@ -1133,7 +1182,7 @@ var Scene3D = (function () {
       for (i = 0; i < stops.length; i++) {
         dummy.position.set(stops[i].x, ROAD_TOP + 0.01, stops[i].z);
         dummy.rotation.set(0, -stops[i].ang, 0);
-        dummy.scale.set(3.4, 0.02, 17);
+        dummy.scale.set(3.4, 0.02, stops[i].wide);
         dummy.updateMatrix();
         stopMesh.setMatrixAt(i, dummy.matrix);
       }
@@ -1154,8 +1203,41 @@ var Scene3D = (function () {
         painted(g, hex);
       }
 
+      // the head of an arrow, opening backwards from its point
+      function arrowHead(x, z, tipAng) {
+        for (var sd = -1; sd <= 1; sd += 2) {
+          var a = tipAng + sd * 0.55;
+          var bdx = Math.cos(a), bdz = Math.sin(a);
+          var hb = new THREE.BoxGeometry(4.4, 0.05, 1.5);
+          hb.rotateY(-a);
+          hb.translate(x - bdx * 2.2, ROAD_TOP + 0.025, z - bdz * 2.2);
+          painted(hb, 0xe8ecf0);
+        }
+      }
+
+      // an arrow painted on the road
+      function roadArrow(x, z, ang, turn) {
+        stripe(7, 1.6, x, z, ang, 0xe8ecf0);
+        var vx = Math.cos(ang), vz = Math.sin(ang);
+        var rx = -vz, rz = vx;
+        if (turn === 'straight') {
+          arrowHead(x + vx * 3.5, z + vz * 3.5, ang);
+          return;
+        }
+        // the bar that turns to the side
+        var dir = turn === 'left' ? -1 : 1;
+        var bar = new THREE.BoxGeometry(1.6, 0.05, 4.6);
+        bar.rotateY(-ang);
+        bar.translate(x + vx * 3.5 + rx * dir * 2.3, ROAD_TOP + 0.025,
+          z + vz * 3.5 + rz * dir * 2.3);
+        painted(bar, 0xe8ecf0);
+        arrowHead(x + vx * 3.5 + rx * dir * 4.6, z + vz * 3.5 + rz * dir * 4.6,
+          ang + dir * Math.PI / 2);
+      }
+
       for (i = 0; i < net.nodes.length; i++) {
         var node3 = net.nodes[i];
+        var box3 = node3.box || CFG.BOX;
         for (d = 0; d < 4; d++) {
           var inId2 = node3.in[d];
           if (!inId2) continue;
@@ -1164,32 +1246,32 @@ var Scene3D = (function () {
           var ang2 = Math.atan2(vv.y, vv.x);
           // the lane of this approach lies on the right of the road
           var rx = -vv.y, rz = vv.x;
-          var off = CFG.LANE_OFF;
+          var arterial = il2.arterial;
 
           // the crossing: a band of stripes in front of the junction
-          var cx2 = node3.x - vv.x * (CFG.BOX / 2 + 8);
-          var cz2 = node3.y - vv.y * (CFG.BOX / 2 + 8);
-          for (var k = -3; k <= 3; k++) {
+          var cx2 = node3.x - vv.x * (box3 / 2 + 8);
+          var cz2 = node3.y - vv.y * (box3 / 2 + 8);
+          var bars = arterial ? 5 : 3;
+          for (var k = -bars; k <= bars; k++) {
             stripe(4.6, 3.2, cx2 + rx * k * 6, cz2 + rz * k * 6, ang2, 0xdfe6ec);
           }
 
-          // the arrow that shows which way the lane goes
-          var ax2 = node3.x - vv.x * 52 + rx * off;
-          var az2 = node3.y - vv.y * 52 + rz * off;
-          stripe(7, 1.6, ax2, az2, ang2, 0xe8ecf0);
-          for (var sd = -1; sd <= 1; sd += 2) {
-            var a3 = ang2 + sd * 0.55;
-            var bdx = Math.cos(a3), bdz = Math.sin(a3);
-            var hb = new THREE.BoxGeometry(4.4, 0.05, 1.5);
-            hb.rotateY(-a3);
-            hb.translate(ax2 + vv.x * 3.5 - bdx * 2.2, ROAD_TOP + 0.025,
-              az2 + vv.y * 3.5 - bdz * 2.2);
-            painted(hb, 0xe8ecf0);
+          // the arrows that show which way each lane goes
+          if (arterial) {
+            var ax3 = node3.x - vv.x * 58;
+            var az3 = node3.y - vv.y * 58;
+            roadArrow(ax3 + rx * 5, az3 + rz * 5, ang2, 'left');
+            roadArrow(ax3 + rx * 15, az3 + rz * 15, ang2, 'straight');
+            roadArrow(ax3 + rx * 25, az3 + rz * 25, ang2, 'right');
+          } else {
+            roadArrow(node3.x - vv.x * 52 + rx * CFG.LANE_OFF,
+              node3.y - vv.y * 52 + rz * CFG.LANE_OFF, ang2, 'straight');
           }
 
           // the bump before the crossing
-          var bumpX = node3.x - vv.x * 44 + rx * off;
-          var bumpZ = node3.y - vv.y * 44 + rz * off;
+          var bumpOff = arterial ? 15 : CFG.LANE_OFF;
+          var bumpX = node3.x - vv.x * 44 + rx * bumpOff;
+          var bumpZ = node3.y - vv.y * 44 + rz * bumpOff;
           var bump = new THREE.BoxGeometry(6, 0.55, 9);
           bump.rotateY(-ang2);
           bump.translate(bumpX, ROAD_TOP + 0.275, bumpZ);
@@ -1236,6 +1318,14 @@ var Scene3D = (function () {
       hoodGeo.rotateX(Math.PI / 2);
       hoodGeo.translate(0, 0, 3.2);
       var lensGeo = mergeParts([discGeo, hoodGeo]);
+
+      // the turn arrows of the junction in the middle of the map
+      var arrowLeftGeo = arrowPlate();
+      var arrowRightGeo = arrowPlate();
+      arrowRightGeo.rotateY(Math.PI);
+      arrowRightGeo.translate(0, 0, 3.35);
+      var arrowHousingGeo = new THREE.BoxGeometry(8.6, 5.8, 2.4);
+      var arrowHaloGeo = new THREE.SphereGeometry(2.1, 12, 8);
 
       // the backing plate, a frame around the lens column and a frame around
       // the back of the plate: both frames light up in the colour of the
@@ -1289,6 +1379,24 @@ var Scene3D = (function () {
           axisTrims[ax] = new THREE.MeshStandardMaterial({
             color: 0x6b4d12, roughness: 0.7, emissive: 0x000000, emissiveIntensity: 1.2
           });
+        }
+        // the arrows of the turns, one pair for every axis
+        var arrowMats = { V: {}, H: {} };
+        var arrowHalos = { V: {}, H: {} };
+        if (node2.light.arrows) {
+          var turns = ['left', 'right'];
+          for (var at = 0; at < 2; at++) {
+            var ax2 = axes[at];
+            for (var tn = 0; tn < 2; tn++) {
+              arrowMats[ax2][turns[tn]] = new THREE.MeshStandardMaterial({
+                color: LENS[0].off, roughness: 0.3, emissive: 0x000000, emissiveIntensity: 0
+              });
+              arrowHalos[ax2][turns[tn]] = new THREE.MeshBasicMaterial({
+                color: LENS[2].on, transparent: true, opacity: 0.3,
+                blending: THREE.AdditiveBlending, depthWrite: false
+              });
+            }
+          }
         }
 
         var list = spots[i];
@@ -1350,6 +1458,42 @@ var Scene3D = (function () {
             halo.position.set(0, lensY, 1.7);
             halo.visible = false;
             head.add(halo);
+          }
+
+          // the arrows for the turns, below the head
+          if (node2.light.arrows) {
+            var ah = new THREE.Group();
+            ah.position.set(0, HOOD_Y - 12.5, 0);
+            head.add(ah);
+
+            var aHousing = new THREE.Mesh(arrowHousingGeo, housingMat);
+            ah.add(aHousing);
+            var bracket = new THREE.Mesh(unitBox, poleMat);
+            bracket.scale.set(1.4, 3.0, 1.4);
+            bracket.position.set(0, HOOD_Y - 9.6, -0.4);
+            ah.add(bracket);
+
+            var aLeft = new THREE.Mesh(arrowLeftGeo, arrowMats[sp.axis].left);
+            aLeft.position.x = -2.3;
+            ah.add(aLeft);
+            var aRight = new THREE.Mesh(arrowRightGeo, arrowMats[sp.axis].right);
+            aRight.position.x = 2.3;
+            ah.add(aRight);
+
+            var aHaloL = new THREE.Mesh(arrowHaloGeo, arrowHalos[sp.axis].left);
+            aHaloL.position.set(-2.3, 0, 2.1);
+            aHaloL.visible = false;
+            ah.add(aHaloL);
+            var aHaloR = new THREE.Mesh(arrowHaloGeo, arrowHalos[sp.axis].right);
+            aHaloR.position.set(2.3, 0, 2.1);
+            aHaloR.visible = false;
+            ah.add(aHaloR);
+
+            sp.arrowL = arrowMats[sp.axis].left;
+            sp.arrowR = arrowMats[sp.axis].right;
+            sp.arrowHaloL = arrowHalos[sp.axis].left;
+            sp.arrowHaloR = arrowHalos[sp.axis].right;
+            pickables.push(aHousing);
           }
 
           lightGroup.add(g);
@@ -1528,6 +1672,14 @@ var Scene3D = (function () {
         var bc = flag === 'red' ? 0xff4d4d : (flag === 'manual' ? 0x7fd1ff : 0x2a2f38);
         head.beaconMat.color.setHex(bc);
         head.beaconMat.emissive.setHex(flag === 'off' ? 0x000000 : bc);
+
+        // the arrows of the turns
+        for (var asi = 0; asi < head.spots.length; asi++) {
+          var asp = head.spots[asi];
+          if (!asp.arrowL) continue;
+          applyArrow(asp.arrowL, asp.arrowHaloL, light.arrowSignal(asp.axis, 'left') === 'go');
+          applyArrow(asp.arrowR, asp.arrowHaloR, light.arrowSignal(asp.axis, 'right') === 'go');
+        }
       }
 
       sceneryClock += dt || 0;
@@ -1543,6 +1695,14 @@ var Scene3D = (function () {
       if (state === 'red') return LENS[0].on;
       if (state === 'yellow') return LENS[1].on;
       return LENS[2].on;
+    }
+
+    // a turn arrow: green when the turn may go, red when it may not
+    function applyArrow(mat, halo, go) {
+      mat.color.setHex(go ? LENS[2].on : LENS[0].off);
+      mat.emissive.setHex(go ? LENS[2].on : 0x000000);
+      mat.emissiveIntensity = go ? 1.6 : 0;
+      halo.visible = go;
     }
 
     // light one lens of a stack, the other two go dark

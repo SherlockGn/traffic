@@ -25,6 +25,11 @@ The in-app interface text is in Chinese.
 - **Follow camera** — click any vehicle to ride along behind it. The view returns to the map
   automatically when the vehicle leaves.
 - **Closed map mode** — stop new vehicles from entering and turn the ones at the border around.
+- **Right turn on red** — a red light does not hold a vehicle that is turning right. The rule
+  can be switched off, then the right turn has to wait for the green.
+- **Three-lane junction in the middle** — the middle of the map is a big intersection: every
+  approach has a lane for the left turn, one to go straight on and one for the right turn, and
+  the signal heads above them show a green or red arrow for each turn.
 - **Live parameter panel** — green and yellow phase length, spawn rate, initial vehicle count,
   plus live statistics (vehicles on the map, average speed, stopped count, throughput).
 - **Touch support** — one finger orbits, a two-finger pinch zooms, a long press on a signal

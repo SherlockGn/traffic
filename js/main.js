@@ -39,6 +39,7 @@
     night: document.getElementById('btn-night'),
     rain: document.getElementById('btn-rain'),
     closed: document.getElementById('in-closed'),
+    right: document.getElementById('in-right'),
     typeBox: document.getElementById('car-type'),
     colorBox: document.getElementById('car-colors'),
     addCar: document.getElementById('btn-add-car'),
@@ -81,6 +82,7 @@
     sim.spawnRate = +el.spawn.value;
     sim.autoMode = el.modeAuto.classList.contains('active');
     sim.setClosed(el.closed.checked);
+    sim.setRightOnRed(el.right.checked);
     if (populate) sim.populate(+el.cars.value);
     scene3d.build(net);
   }
@@ -273,6 +275,8 @@
   });
 
   el.closed.addEventListener('change', function () { sim.setClosed(el.closed.checked); });
+
+  el.right.addEventListener('change', function () { sim.setRightOnRed(el.right.checked); });
 
   /* ------------------------------------------------------------ 自定义车辆 */
 
