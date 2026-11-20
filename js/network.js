@@ -154,6 +154,16 @@ TrafficLight.prototype.arrowSignal = function (axis, turn) {
   return (p.axis === axis && p.kind === 'left') ? 'go' : 'stop';
 };
 
+// The state of a lane signal: 'go', 'caution' or 'stop'.
+TrafficLight.prototype.laneSignal = function (axis, turn) {
+  if (this.allRed) return 'stop';
+  if (turn === 'straight') return this.axisSignal(axis);
+  if (turn === 'right') return this.arrowSignal(axis, 'right');
+  if (!this.arrows) return this.axisSignal(axis) === 'go' ? 'go' : 'stop';
+  var p = this.currentPhase();
+  return (p.axis === axis && p.kind === 'left') ? 'go' : 'stop';
+};
+
 TrafficLight.prototype.signal = function (dir) {
   return this.axisSignal(isVertical(dir) ? 'V' : 'H');
 };

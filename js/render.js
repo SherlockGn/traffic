@@ -77,20 +77,69 @@ var Scene3D = (function () {
     };
   }
 
-  // an arrow lens: a plate in the shape of an arrow.  The arrow points to
-  // the left of the driver, so it is the left turn.
-  function arrowPlate() {
+  /* The shape of an arrow.  It lies in the xy plane, with +x the way the
+     lane goes and +y to the left of it.  The left turn bends up, the right
+     turn bends down, and the chevron of a signal points to the side. */
+  function arrowShape(turn) {
+    var pts;
+    if (turn === 'straight') {
+      pts = [[-6, -0.8], [2, -0.8], [2, -2.2], [6, 0], [2, 2.2], [2, 0.8], [-6, 0.8]];
+    } else if (turn === 'chevron') {
+      pts = [[-1.3, 1.15], [1.35, 0], [-1.3, -1.15], [-0.6, -1.15], [0.4, 0], [-0.6, 1.15]];
+    } else {
+      var up = turn === 'left' ? 1 : -1;
+      pts = [[-6, -0.8], [0.8, -0.8], [0.8, 4.2 * up], [2.2, 4.2 * up], [0, 6.5 * up],
+      [-2.2, 4.2 * up], [-0.8, 4.2 * up], [-0.8, 0.8], [-6, 0.8]];
+    }
+    // the points have to run counter clockwise, or the face looks inside out
+    var area = 0;
+    for (var i = 0; i < pts.length; i++) {
+      var j = (i + 1) % pts.length;
+      area += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1];
+    }
+    if (area < 0) pts.reverse();
     var s = new THREE.Shape();
-    s.moveTo(-1.7, -0.32);
-    s.lineTo(0.45, -0.32);
-    s.lineTo(0.45, -0.85);
-    s.lineTo(1.75, 0);
-    s.lineTo(0.45, 0.85);
-    s.lineTo(0.45, 0.32);
-    s.lineTo(-1.7, 0.32);
+    s.moveTo(pts[0][0], pts[0][1]);
+    for (var k = 1; k < pts.length; k++) s.lineTo(pts[k][0], pts[k][1]);
     s.closePath();
-    var g = new THREE.ExtrudeGeometry(s, { depth: 0.35, bevelEnabled: false });
-    g.translate(0, 0, 1.5);
+    return s;
+  }
+
+  // a flat arrow, for the paint on the road and for the lenses of a signal
+  function arrowGeo(turn, scale, depth) {
+    var g = new THREE.ExtrudeGeometry(arrowShape(turn), {
+      depth: depth, bevelEnabled: false
+    });
+    g.scale(scale, scale, 1);
+    return g;
+  }
+
+  // the arrow of a signal lens: in the frame of the lens, up is straight on
+  // and to the side is to the side
+  function lensArrowGeo(turn) {
+    var pts;
+    if (turn === 'straight') {
+      pts = [[-0.34, -1.55], [0.34, -1.55], [0.34, 0.1], [1.2, 0.1],
+      [0, 1.6], [-1.2, 0.1], [-0.34, 0.1]];
+    } else if (turn === 'left') {
+      pts = [[-1.4, 0], [-0.65, 1.2], [0.45, 1.2], [0.45, 0.62],
+      [-0.6, 0], [0.45, -0.62], [0.45, -1.2], [-0.65, -1.2]];
+    } else {
+      pts = [[1.4, 0], [0.65, 1.2], [-0.45, 1.2], [-0.45, 0.62],
+      [0.6, 0], [-0.45, -0.62], [-0.45, -1.2], [0.65, -1.2]];
+    }
+    var area = 0;
+    for (var i = 0; i < pts.length; i++) {
+      var j = (i + 1) % pts.length;
+      area += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1];
+    }
+    if (area < 0) pts.reverse();
+    var s = new THREE.Shape();
+    s.moveTo(pts[0][0], pts[0][1]);
+    for (var k = 1; k < pts.length; k++) s.lineTo(pts[k][0], pts[k][1]);
+    s.closePath();
+    var g = new THREE.ExtrudeGeometry(s, { depth: 0.22, bevelEnabled: false });
+    g.translate(0, 0, 1.3);
     return g;
   }
 
@@ -1215,24 +1264,13 @@ var Scene3D = (function () {
         }
       }
 
-      // an arrow painted on the road
+      // an arrow painted on the road: the whole shape in one piece
       function roadArrow(x, z, ang, turn) {
-        stripe(7, 1.6, x, z, ang, 0xe8ecf0);
-        var vx = Math.cos(ang), vz = Math.sin(ang);
-        var rx = -vz, rz = vx;
-        if (turn === 'straight') {
-          arrowHead(x + vx * 3.5, z + vz * 3.5, ang);
-          return;
-        }
-        // the bar that turns to the side
-        var dir = turn === 'left' ? -1 : 1;
-        var bar = new THREE.BoxGeometry(1.6, 0.05, 4.6);
-        bar.rotateY(-ang);
-        bar.translate(x + vx * 3.5 + rx * dir * 2.3, ROAD_TOP + 0.025,
-          z + vz * 3.5 + rz * dir * 2.3);
-        painted(bar, 0xe8ecf0);
-        arrowHead(x + vx * 3.5 + rx * dir * 4.6, z + vz * 3.5 + rz * dir * 4.6,
-          ang + dir * Math.PI / 2);
+        var g = arrowGeo(turn, 1, 0.06);
+        g.rotateX(-Math.PI / 2);
+        g.rotateY(-ang);
+        g.translate(x, ROAD_TOP + 0.03, z);
+        painted(g, 0xe8ecf0);
       }
 
       for (i = 0; i < net.nodes.length; i++) {
@@ -1319,13 +1357,22 @@ var Scene3D = (function () {
       hoodGeo.translate(0, 0, 3.2);
       var lensGeo = mergeParts([discGeo, hoodGeo]);
 
-      // the turn arrows of the junction in the middle of the map
-      var arrowLeftGeo = arrowPlate();
-      var arrowRightGeo = arrowPlate();
-      arrowRightGeo.rotateY(Math.PI);
-      arrowRightGeo.translate(0, 0, 3.35);
-      var arrowHousingGeo = new THREE.BoxGeometry(8.6, 5.8, 2.4);
-      var arrowHaloGeo = new THREE.SphereGeometry(2.1, 12, 8);
+      // the lane signals of the junction in the middle of the map: a head for
+      // every lane, each with a red, a yellow and a green arrow
+      var laneHousingGeo = new THREE.BoxGeometry(7.4, 15.4, 2.6);
+      var laneBackGeo = new THREE.BoxGeometry(6.6, 14.6, 0.6);
+      var laneLensGeo = new THREE.CylinderGeometry(1.55, 1.55, 0.4, 20);
+      laneLensGeo.rotateX(Math.PI / 2);
+      laneLensGeo.translate(0, 0, 1.15);
+      var laneArrowGeo = {
+        left: lensArrowGeo('left'),
+        straight: lensArrowGeo('straight'),
+        right: lensArrowGeo('right')
+      };
+      var laneHaloGeo = new THREE.SphereGeometry(2.0, 12, 8);
+      var laneDarkMat = new THREE.MeshStandardMaterial({ color: 0x161b21, roughness: 0.5 });
+      // where the heads of the lanes stand, in the frame of the signal
+      var laneXs = [-4, 6, 16];
 
       // the backing plate, a frame around the lens column and a frame around
       // the back of the plate: both frames light up in the colour of the
@@ -1380,21 +1427,25 @@ var Scene3D = (function () {
             color: 0x6b4d12, roughness: 0.7, emissive: 0x000000, emissiveIntensity: 1.2
           });
         }
-        // the arrows of the turns, one pair for every axis
+        // the arrows of the turns, one set for every axis
         var arrowMats = { V: {}, H: {} };
         var arrowHalos = { V: {}, H: {} };
         if (node2.light.arrows) {
-          var turns = ['left', 'right'];
+          var turns = ['left', 'straight', 'right'];
           for (var at = 0; at < 2; at++) {
             var ax2 = axes[at];
-            for (var tn = 0; tn < 2; tn++) {
-              arrowMats[ax2][turns[tn]] = new THREE.MeshStandardMaterial({
-                color: LENS[0].off, roughness: 0.3, emissive: 0x000000, emissiveIntensity: 0
-              });
-              arrowHalos[ax2][turns[tn]] = new THREE.MeshBasicMaterial({
-                color: LENS[2].on, transparent: true, opacity: 0.3,
-                blending: THREE.AdditiveBlending, depthWrite: false
-              });
+            for (var tn = 0; tn < 3; tn++) {
+              arrowMats[ax2][turns[tn]] = [];
+              arrowHalos[ax2][turns[tn]] = [];
+              for (var li = 0; li < 3; li++) {
+                arrowMats[ax2][turns[tn]][li] = new THREE.MeshStandardMaterial({
+                  color: LENS[li].off, roughness: 0.3, emissive: 0x000000, emissiveIntensity: 0
+                });
+                arrowHalos[ax2][turns[tn]][li] = new THREE.MeshBasicMaterial({
+                  color: LENS[li].on, transparent: true, opacity: 0.3,
+                  blending: THREE.AdditiveBlending, depthWrite: false
+                });
+              }
             }
           }
         }
@@ -1430,70 +1481,76 @@ var Scene3D = (function () {
           head.position.set(-14, 0, 0);
           g.add(head);
 
-          var matArr = [];
-          for (var q = 0; q < plateMats.length; q++) {
-            matArr.push(plateMats[q] === 0 ? axisPlates[sp.axis] : axisTrims[sp.axis]);
-          }
-          var plate = new THREE.Mesh(plateMerged, matArr);
-          plate.position.y = HOOD_Y;
-          head.add(plate);
-
-          var housing = new THREE.Mesh(housingGeo, housingMat);
-          housing.position.y = HOOD_Y;
-          housing.userData.node = node2;
-          head.add(housing);
-          pickables.push(housing);
-
-          var mats = axisMats[sp.axis];
-          var halos = axisHalos[sp.axis];
-          for (k = 0; k < 3; k++) {
-            var lensY = HOOD_Y + 4.3 - k * 4.3;
-            var lens = new THREE.Mesh(lensGeo, [mats[k], visorMat]);
-            lens.position.y = lensY;
-            lens.userData.node = node2;
-            head.add(lens);
-            pickables.push(lens);
-
-            var halo = new THREE.Mesh(haloGeo, halos[k]);
-            halo.position.set(0, lensY, 1.7);
-            halo.visible = false;
-            head.add(halo);
-          }
-
-          // the arrows for the turns, below the head
           if (node2.light.arrows) {
-            var ah = new THREE.Group();
-            ah.position.set(0, HOOD_Y - 12.5, 0);
-            head.add(ah);
+            // the lane signals of the middle junction: a head for every lane
+            // on a bar that reaches over the road
+            var lane = new THREE.Group();
+            head.add(lane);
+            var bar = new THREE.Mesh(unitBox, poleMat);
+            bar.scale.set(30, 2.2, 2.2);
+            bar.position.set(6, 36, 0);
+            lane.add(bar);
+            for (var ti = 0; ti < 3; ti++) {
+              var lg = new THREE.Group();
+              lg.position.set(laneXs[ti], 28, 0);
+              lane.add(lg);
+              var lHouse = new THREE.Mesh(laneHousingGeo, housingMat);
+              lg.add(lHouse);
+              lHouse.userData.node = node2;
+              pickables.push(lHouse);
+              // the back of the head, so it does not look like a black slab
+              var lBack = new THREE.Mesh(laneBackGeo, poleMat);
+              lBack.position.z = -1.5;
+              lg.add(lBack);
+              for (var lj = 0; lj < 3; lj++) {
+                var lY = 4.6 - lj * 4.6;
+                var lDisc = new THREE.Mesh(laneLensGeo, laneDarkMat);
+                lDisc.position.y = lY;
+                lg.add(lDisc);
+                var lArrow = new THREE.Mesh(laneArrowGeo[turns[ti]],
+                  arrowMats[sp.axis][turns[ti]][lj]);
+                lArrow.position.y = lY;
+                lg.add(lArrow);
+                lArrow.userData.node = node2;
+                pickables.push(lArrow);
+                var lHalo = new THREE.Mesh(laneHaloGeo, arrowHalos[sp.axis][turns[ti]][lj]);
+                lHalo.position.set(0, lY, 1.9);
+                lHalo.visible = false;
+                lg.add(lHalo);
+              }
+            }
+            sp.laneMats = arrowMats[sp.axis];
+            sp.laneHalos = arrowHalos[sp.axis];
+          } else {
+            var matArr = [];
+            for (var q = 0; q < plateMats.length; q++) {
+              matArr.push(plateMats[q] === 0 ? axisPlates[sp.axis] : axisTrims[sp.axis]);
+            }
+            var plate = new THREE.Mesh(plateMerged, matArr);
+            plate.position.y = HOOD_Y;
+            head.add(plate);
 
-            var aHousing = new THREE.Mesh(arrowHousingGeo, housingMat);
-            ah.add(aHousing);
-            var bracket = new THREE.Mesh(unitBox, poleMat);
-            bracket.scale.set(1.4, 3.0, 1.4);
-            bracket.position.set(0, HOOD_Y - 9.6, -0.4);
-            ah.add(bracket);
+            var housing = new THREE.Mesh(housingGeo, housingMat);
+            housing.position.y = HOOD_Y;
+            housing.userData.node = node2;
+            head.add(housing);
+            pickables.push(housing);
 
-            var aLeft = new THREE.Mesh(arrowLeftGeo, arrowMats[sp.axis].left);
-            aLeft.position.x = -2.3;
-            ah.add(aLeft);
-            var aRight = new THREE.Mesh(arrowRightGeo, arrowMats[sp.axis].right);
-            aRight.position.x = 2.3;
-            ah.add(aRight);
+            var mats = axisMats[sp.axis];
+            var halos = axisHalos[sp.axis];
+            for (k = 0; k < 3; k++) {
+              var lensY = HOOD_Y + 4.3 - k * 4.3;
+              var lens = new THREE.Mesh(lensGeo, [mats[k], visorMat]);
+              lens.position.y = lensY;
+              lens.userData.node = node2;
+              head.add(lens);
+              pickables.push(lens);
 
-            var aHaloL = new THREE.Mesh(arrowHaloGeo, arrowHalos[sp.axis].left);
-            aHaloL.position.set(-2.3, 0, 2.1);
-            aHaloL.visible = false;
-            ah.add(aHaloL);
-            var aHaloR = new THREE.Mesh(arrowHaloGeo, arrowHalos[sp.axis].right);
-            aHaloR.position.set(2.3, 0, 2.1);
-            aHaloR.visible = false;
-            ah.add(aHaloR);
-
-            sp.arrowL = arrowMats[sp.axis].left;
-            sp.arrowR = arrowMats[sp.axis].right;
-            sp.arrowHaloL = arrowHalos[sp.axis].left;
-            sp.arrowHaloR = arrowHalos[sp.axis].right;
-            pickables.push(aHousing);
+              var halo = new THREE.Mesh(haloGeo, halos[k]);
+              halo.position.set(0, lensY, 1.7);
+              halo.visible = false;
+              head.add(halo);
+            }
           }
 
           lightGroup.add(g);
@@ -1676,9 +1733,10 @@ var Scene3D = (function () {
         // the arrows of the turns
         for (var asi = 0; asi < head.spots.length; asi++) {
           var asp = head.spots[asi];
-          if (!asp.arrowL) continue;
-          applyArrow(asp.arrowL, asp.arrowHaloL, light.arrowSignal(asp.axis, 'left') === 'go');
-          applyArrow(asp.arrowR, asp.arrowHaloR, light.arrowSignal(asp.axis, 'right') === 'go');
+          if (!asp.laneMats) continue;
+          applyLane(asp.laneMats, asp.laneHalos, 'left', light.laneSignal(asp.axis, 'left'));
+          applyLane(asp.laneMats, asp.laneHalos, 'straight', light.laneSignal(asp.axis, 'straight'));
+          applyLane(asp.laneMats, asp.laneHalos, 'right', light.laneSignal(asp.axis, 'right'));
         }
       }
 
@@ -1698,11 +1756,17 @@ var Scene3D = (function () {
     }
 
     // a turn arrow: green when the turn may go, red when it may not
-    function applyArrow(mat, halo, go) {
-      mat.color.setHex(go ? LENS[2].on : LENS[0].off);
-      mat.emissive.setHex(go ? LENS[2].on : 0x000000);
-      mat.emissiveIntensity = go ? 1.6 : 0;
-      halo.visible = go;
+    function applyLane(mats, halos, turn, state) {
+      var set = mats[turn], hs = halos[turn];
+      for (var k = 0; k < 3; k++) {
+        var lit = (k === 0 && state === 'stop') ||
+          (k === 1 && state === 'caution') ||
+          (k === 2 && state === 'go');
+        set[k].color.setHex(lit ? LENS[k].on : LENS[k].off);
+        set[k].emissive.setHex(lit ? LENS[k].on : 0x000000);
+        set[k].emissiveIntensity = lit ? 1.6 : 0;
+        hs[k].visible = lit;
+      }
     }
 
     // light one lens of a stack, the other two go dark
