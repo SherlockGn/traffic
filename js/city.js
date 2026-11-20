@@ -277,6 +277,31 @@ var City = (function () {
       ball(x, y + 1.5, z, 0.5, 0xd8321f);
     }
 
+    // a star: two flat stars across each other, so it looks like one from
+    // every side
+    function starGeo(x, y, z, r, turn) {
+      var pos = [];
+      for (var face = 0; face < 2; face++) {
+        var pts = [];
+        for (var i = 0; i < 10; i++) {
+          var a = turn + i * Math.PI / 5;
+          var rad = (i % 2 === 0) ? r : r * 0.44;
+          var px = Math.cos(a) * rad, py = Math.sin(a) * rad;
+          if (face === 0) pts.push([x + px, y + py, z]);
+          else pts.push([x, y + py, z + px]);
+        }
+        for (var k = 1; k < 9; k++) {
+          pos.push(pts[0][0], pts[0][1], pts[0][2]);
+          pos.push(pts[k][0], pts[k][1], pts[k][2]);
+          pos.push(pts[k + 1][0], pts[k + 1][1], pts[k + 1][2]);
+        }
+      }
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.computeVertexNormals();
+      return g;
+    }
+
     // a christmas tree with a star on top
     function christmasTree(x, z, ground, scale) {
       var s = scale || 1;
@@ -290,15 +315,17 @@ var City = (function () {
         add(g, C.foliage);
       }
       var top = ground + (2.6 + tiers * 3.4) * s;
-      var star = new THREE.ConeGeometry(1.5 * s, 2.6 * s, 5);
-      star.rotateY(0.6);
-      star.translate(x, top, z);
-      add(star, 0xffd166);
-      for (var b = 0; b < 10; b++) {
+      add(starGeo(x, top, z, 1.7 * s, 0.3), 0xffd166);
+      // the baubles hang on the branches, not in the air beside them
+      for (var b = 0; b < 12; b++) {
+        var tier = (rnd() * tiers) | 0;
+        var cy = (2.6 + tier * 3.4) * s;
+        var ch = (7 - tier * 0.8) * s;
+        var cr = (5.2 - tier * 1.4) * s;
+        var hy = cy - ch * 0.42 + rnd() * ch * 0.6;
+        var rad = cr * (1 - (hy - (cy - ch / 2)) / ch) * 0.94;
         var a = rnd() * Math.PI * 2;
-        var rr = (2 + rnd() * 3) * s;
-        var yy = ground + (3 + rnd() * 8) * s;
-        ball(x + Math.cos(a) * rr, yy, z + Math.sin(a) * rr, 0.55 * s,
+        ball(x + Math.cos(a) * rad, ground + hy, z + Math.sin(a) * rad, 0.5 * s,
           C.fest[(rnd() * C.fest.length) | 0]);
       }
     }
@@ -630,35 +657,40 @@ var City = (function () {
       bx(w - 12, 0.16, 9, cx, 0.58, cz, 0x605e53);
       bx(9, 0.16, d - 12, cx, 0.58, cz, 0x605e53);
       // the pond and the fountain in it
-      disc(cx - w * 0.22, cz - d * 0.2, 16, 11, 0.56, 0x555b4d);
-      disc(cx - w * 0.22, cz - d * 0.2, 13, 8.5, 0.6, C.water);
-      cyl(4.2, 1.6, cx - w * 0.22, 1.2, cz - d * 0.2, C.stone, 14);
-      cyl(3.4, 0.3, cx - w * 0.22, 2.1, cz - d * 0.2, 0x8fb8c8, 14);
-      var jet = new THREE.ConeGeometry(1.6, 4.6, 8);
-      jet.translate(cx - w * 0.22, 4.4, cz - d * 0.2);
-      add(jet, 0xa9d6e6);
+      var fx = cx - w * 0.22, fz = cz - d * 0.2;
+      disc(fx, fz, 16, 11, 0.56, 0x555b4d);
+      disc(fx, fz, 13, 8.5, 0.6, C.water);
+      cyl(4.2, 1.6, fx, 1.2, fz, C.stone, 14);
+      cyl(3.4, 0.3, fx, 2.1, fz, 0x8fb8c8, 14);
+      // the water goes up in drops
+      for (var dr = 0; dr < 5; dr++) {
+        var dh = 2.4 + dr * 1.15;
+        ball(fx, dh + 2.4, fz, 1.5 - dr * 0.22, 0xbfe4f2);
+      }
       // the trees
       for (var t = 0; t < 4; t++) {
         var ux = x0 + 12 + rnd() * (w - 24);
         var uz = z0 + 12 + rnd() * (d - 24);
         if (Math.abs(ux - cx) < 8 && Math.abs(uz - cz) < 8) continue;
-        cyl(1.1, 5, ux, 2.9, uz, 0x4a3a2a);
-        for (var b = 0; b < 3; b++) {
-          var r = 4.6 - b * 0.9;
-          ball(ux + (rnd() - 0.5) * 2.6, 8.4 - b * 1.5, uz + (rnd() - 0.5) * 2.6, r,
+        // keep them out of the pond
+        if (Math.abs(ux - fx) < 18 && Math.abs(uz - fz) < 13) continue;
+        cyl(0.9, 5.4, ux, 3.1, uz, 0x4a3a2a);
+        for (var b = 0; b < 5; b++) {
+          var r = 4.8 - b * 0.62;
+          ball(ux + (rnd() - 0.5) * 2.4, 11.4 - r * 0.85 - b * 0.95, uz + (rnd() - 0.5) * 2.4, r,
             C.foliage);
         }
       }
-      // the benches and the lamps
-      bx(7, 0.6, 2.4, cx + 14, 2, cz + 10, 0x8a5a3b);
-      bx(0.8, 1.8, 2.2, cx + 11, 1, cz + 10, 0x39414c);
-      bx(0.8, 1.8, 2.2, cx + 17, 1, cz + 10, 0x39414c);
-      bx(7, 0.6, 2.4, cx - 10, 2, cz - 12, 0x8a5a3b);
-      bx(0.8, 1.8, 2.2, cx - 13, 1, cz - 12, 0x39414c);
-      bx(0.8, 1.8, 2.2, cx - 7, 1, cz - 12, 0x39414c);
-      lamp(cx + 20, cz - 6, -1, 0);
-      lamp(cx - 22, cz + 8, 1, 0);
-      christmasTree(cx + 6, cz + 16, 0.5, 0.9);
+      // the benches and the lamps, all of them on the grass
+      bx(7, 0.6, 2.4, cx + 16, 2, cz + 12, 0x8a5a3b);
+      bx(0.8, 1.8, 2.2, cx + 13, 1, cz + 12, 0x39414c);
+      bx(0.8, 1.8, 2.2, cx + 19, 1, cz + 12, 0x39414c);
+      bx(7, 0.6, 2.4, cx - 4, 2, cz + 14, 0x8a5a3b);
+      bx(0.8, 1.8, 2.2, cx - 7, 1, cz + 14, 0x39414c);
+      bx(0.8, 1.8, 2.2, cx - 1, 1, cz + 14, 0x39414c);
+      lamp(cx + 22, cz - 4, -1, 0);
+      lamp(cx - 24, cz + 10, 1, 0);
+      christmasTree(cx + 8, cz + 18, 0.5, 0.9);
     }
 
     // a stone bridge over the canal

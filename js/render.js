@@ -287,6 +287,31 @@ var Scene3D = (function () {
       blob(x, 10.2, z, 1.1, GREENERY.lamp);
     }
 
+    // a star: two flat stars across each other, so it looks like one from
+    // every side
+    function starGeo(x, y, z, r, turn) {
+      var pos = [];
+      for (var face = 0; face < 2; face++) {
+        var pts = [];
+        for (var i = 0; i < 10; i++) {
+          var a = turn + i * Math.PI / 5;
+          var rad = (i % 2 === 0) ? r : r * 0.44;
+          var px = Math.cos(a) * rad, py = Math.sin(a) * rad;
+          if (face === 0) pts.push([x + px, y + py, z]);
+          else pts.push([x, y + py, z + px]);
+        }
+        for (var k = 1; k < 9; k++) {
+          pos.push(pts[0][0], pts[0][1], pts[0][2]);
+          pos.push(pts[k][0], pts[k][1], pts[k][2]);
+          pos.push(pts[k + 1][0], pts[k + 1][1], pts[k + 1][2]);
+        }
+      }
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.computeVertexNormals();
+      return g;
+    }
+
     // a christmas tree with a star on top
     function christmasTree(x, z, ground, scale) {
       var s = scale || 1;
@@ -301,16 +326,18 @@ var Scene3D = (function () {
         g.translate(x, ground + (2.6 + i * 3.4) * s, z);
         add(g, GREENERY.foliage);
       }
-      var star = new THREE.ConeGeometry(1.5 * s, 2.6 * s, 5);
-      star.rotateY(0.6);
-      star.translate(x, ground + (2.6 + tiers * 3.4) * s, z);
-      add(star, 0xffd166);
+      add(starGeo(x, ground + (2.6 + tiers * 3.4) * s, z, 1.7 * s, 0.3), 0xffd166);
+      // the baubles hang on the branches, not in the air beside them
       var baubles = [0xe2514f, 0xf2c14e, 0x5aa9e6, 0x6fbf73, 0xe08ac0];
       for (var b = 0; b < 12; b++) {
+        var tier = (rnd() * tiers) | 0;
+        var cy = (2.6 + tier * 3.4) * s;
+        var ch = (7 - tier * 0.8) * s;
+        var cr = (5.2 - tier * 1.4) * s;
+        var hy = cy - ch * 0.42 + rnd() * ch * 0.6;
+        var rad = cr * (1 - (hy - (cy - ch / 2)) / ch) * 0.94;
         var a = rnd() * Math.PI * 2;
-        var rr = (2 + rnd() * 3) * s;
-        var yy = ground + (3 + rnd() * 8) * s;
-        blob(x + Math.cos(a) * rr, yy, z + Math.sin(a) * rr, 0.55 * s,
+        blob(x + Math.cos(a) * rad, ground + hy, z + Math.sin(a) * rad, 0.5 * s,
           baubles[(rnd() * baubles.length) | 0]);
       }
     }
