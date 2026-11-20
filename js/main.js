@@ -80,7 +80,7 @@
     sim.yellowTime = +el.yellow.value;
     sim.spawnRate = +el.spawn.value;
     sim.autoMode = el.modeAuto.classList.contains('active');
-    sim.closed = el.closed.checked;
+    sim.setClosed(el.closed.checked);
     if (populate) sim.populate(+el.cars.value);
     scene3d.build(net);
   }
