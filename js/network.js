@@ -378,6 +378,28 @@ Network.prototype.laneForTurn = function (group, turn) {
   return group[idx];
 };
 
+// The route through a junction: the way the car goes and the lane it takes
+// on the road beyond.  On the wide roads of the middle of the map that lane
+// belongs to the turn the car makes at the junction after it, so the route
+// for that junction has to be worked out first.  The wide roads follow one
+// another, so this looks a little further ahead each time.
+Network.prototype.routeThrough = function (node, incomingDir, dest, hasRoom, closed, depth) {
+  var choice = this.nextDirection(node, incomingDir, dest, hasRoom, closed);
+  if (!choice || !choice.group || choice.group.length < 2) return choice;
+  if (depth > 3) return choice;
+  var beyond = this.nodes[choice.lane.to];
+  var next = this.routeThrough(beyond, choice.dir, dest, hasRoom, closed, depth + 1);
+  if (next && !next.exit) {
+    choice.lane = this.laneForTurn(choice.group, next.turn);
+    // the route for the junction after this one comes with it, so that the
+    // car does not have to work it out again when it gets there
+    choice.ahead = {
+      lane: next.lane, turn: next.turn, node: beyond.id, ahead: next.ahead || null
+    };
+  }
+  return choice;
+};
+
 // `closed` keeps every car on the map: driving off it is not an option, so
 // a car that reaches the edge has to turn back into the city.
 Network.prototype.nextDirection = function (node, incomingDir, dest, hasRoom, closed) {

@@ -117,19 +117,18 @@ var Scene3D = (function () {
   }
 
   // the arrow of a signal lens: in the frame of the lens, up is straight on
-  // and to the side is to the side
+  // and to the side is to the side.  A turn arrow has a shaft that comes up
+  // from below and a head that bends to the side.
   function lensArrowGeo(turn) {
     var pts;
     if (turn === 'straight') {
       pts = [[-0.3, -1.5], [0.3, -1.5], [0.3, 0.05], [1.05, 0.05],
       [0, 1.55], [-1.05, 0.05], [-0.3, 0.05]];
     } else if (turn === 'left') {
-      // a chevron: a thin arm on each side
-      pts = [[-1.55, 0], [-0.45, 1.4], [0.7, 1.4], [0.7, 0.9],
-      [-1.25, 0], [0.7, -0.9], [0.7, -1.4], [-0.45, -1.4]];
+      // the head bends to the left of the driver
+      pts = [[0.3, -1.5], [0.3, 1.15], [-1.45, 0.3], [-0.3, -0.55], [-0.3, -1.5]];
     } else {
-      pts = [[1.55, 0], [0.45, 1.4], [-0.7, 1.4], [-0.7, 0.9],
-      [1.25, 0], [-0.7, -0.9], [-0.7, -1.4], [0.45, -1.4]];
+      pts = [[-0.3, -1.5], [-0.3, 1.15], [1.45, 0.3], [0.3, -0.55], [0.3, -1.5]];
     }
     var area = 0;
     for (var i = 0; i < pts.length; i++) {
@@ -142,6 +141,7 @@ var Scene3D = (function () {
     for (var k = 1; k < pts.length; k++) s.lineTo(pts[k][0], pts[k][1]);
     s.closePath();
     var g = new THREE.ExtrudeGeometry(s, { depth: 0.22, bevelEnabled: false });
+    g.scale(0.9, 0.9, 1);
     g.translate(0, 0, 1.3);
     return g;
   }

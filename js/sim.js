@@ -213,9 +213,9 @@ Vehicle.prototype.chooseNext = function (sim) {
   var self = this;
   // a way out that is already blocked would leave the car stuck at the stop
   // line for good, so the route counts what is ahead of it
-  var choice = net.nextDirection(node, this.lane.dir, this.dest, function (lane) {
+  var choice = net.routeThrough(node, this.lane.dir, this.dest, function (lane) {
     return sim.laneHasRoom(lane, self.len);
-  }, sim.closed);
+  }, sim.closed, 0);
   if (!choice) {
     if (sim.closed) {
       // the map is closed, so the only road left is the one it came from
@@ -225,21 +225,8 @@ Vehicle.prototype.chooseNext = function (sim) {
     if (!choice) { this.next = { exit: true, dir: this.lane.dir, turn: 'straight' }; return; }
   }
 
-  // On the wide roads of the middle of the map every lane belongs to one
-  // turn: the left turn has its own lane and so has the right turn.  Which
-  // lane the car takes therefore depends on the turn it makes at the far end
-  // of the road, and that route has to be worked out first.  It is kept until
-  // the car is on the road.
-  if (choice.group && choice.group.length > 1) {
-    var aheadNode = net.nodes[choice.lane.to];
-    var ahead = net.nextDirection(aheadNode, choice.dir, this.dest, function (lane) {
-      return sim.laneHasRoom(lane, self.len);
-    }, sim.closed);
-    if (ahead && !ahead.exit) {
-      this.ahead = { lane: ahead.lane, turn: ahead.turn, node: aheadNode.id };
-      choice.lane = net.laneForTurn(choice.group, ahead.turn);
-    }
-  }
+  // The route for the junction after this one comes with it: on the wide
+  // roads the car has to know it before it can pick the lane it drives in.
   this.makeCurve(choice, node);
 };
 
@@ -328,7 +315,7 @@ Vehicle.prototype.makeCurve = function (choice, node) {
       p1b
     );
   }
-  this.next = { lane: choice.lane, turn: choice.turn };
+  this.next = { lane: choice.lane, turn: choice.turn, ahead: choice.ahead || null };
 };
 
 Vehicle.prototype.update = function (dt, sim) {
@@ -451,6 +438,23 @@ Vehicle.prototype.startExit = function (sim) {
   sim.flow++;
 };
 
+// Put the car in the lane that belongs to the turn it is going to make at
+// the end of the road it is on.  It is used when a car is put on the map by
+// hand, and when it turns around at the edge.
+Vehicle.prototype.fitLane = function (sim) {
+  if (!this.next || this.next.exit) return;
+  var group = sim.net.nodes[this.lane.from].outLanes[this.lane.dir];
+  if (!group || group.length < 2) return;
+  var turn = this.next.turn;
+  var want = sim.net.laneForTurn(group, turn);
+  if (!want || want === this.lane) return;
+  this.remove();
+  this.lane = want;
+  this.insert();
+  this.next = null;
+  this.makeCurve({ lane: want, turn: turn }, sim.net.nodes[want.to]);
+};
+
 // Put a car that was driving off the map back onto the road behind it, so
 // it turns around at the edge instead of leaving.
 Vehicle.prototype.reenter = function (sim) {
@@ -476,27 +480,16 @@ Vehicle.prototype.reenter = function (sim) {
   // The route is worked out right away, so that the car can be put in the
   // lane that belongs to the turn it is going to make further on.
   this.chooseNext(sim);
-  if (this.next && !this.next.exit) {
-    var group = sim.net.nodes[this.lane.from].outLanes[this.lane.dir];
-    if (group && group.length > 1) {
-      var turn = this.next.turn;
-      var want = sim.net.laneForTurn(group, turn);
-      if (want && want !== this.lane) {
-        this.remove();
-        this.lane = want;
-        this.s = -18;
-        this.insert();
-        this.next = null;
-        this.makeCurve({ lane: want, turn: turn }, sim.net.nodes[want.to]);
-      }
-    }
-  }
+  this.fitLane(sim);
 };
 
 Vehicle.prototype.enterNextLane = function (sim) {
   var node = sim.net.nodes[this.lane.to];
   sim.releaseSlot(node, this.lane.dir);
   var lane = this.next.lane;
+  // the route for the junction at the end of the new road, worked out when
+  // the car picked the lane it is driving on
+  var plan = this.next.ahead;
   this.remove();
   this.lane = lane;
   this.s = this.curveOut;
@@ -508,12 +501,10 @@ Vehicle.prototype.enterNextLane = function (sim) {
   this.passCount++;
   sim.flow++;
 
-  // The route for the junction after this one may already be known: it was
-  // worked out when the car picked the lane of the road it is on now.
-  var ahead = this.ahead;
-  this.ahead = null;
-  if (ahead && ahead.lane && ahead.node === this.lane.to) {
-    this.makeCurve({ lane: ahead.lane, turn: ahead.turn }, sim.net.nodes[this.lane.to]);
+  if (plan && plan.lane && plan.node === lane.to) {
+    this.makeCurve({ lane: plan.lane, turn: plan.turn }, sim.net.nodes[lane.to]);
+    // and the route for the junction after that one comes along as well
+    this.ahead = plan.ahead || null;
   }
 
   this.insert();
