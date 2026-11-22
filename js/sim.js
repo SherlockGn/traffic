@@ -211,15 +211,28 @@ Vehicle.prototype.chooseNext = function (sim) {
   var net = sim.net;
   var node = net.nodes[this.lane.to];
   var self = this;
+  // the lane decides the turn: the left lane turns left or turns around, the
+  // middle one goes straight on and the right one turns right
+  var turns = null;
+  if (this.lane.groupLanes && this.lane.groupLanes.length > 1) {
+    turns = this.lane.group === 0 ? ['left', 'uturn']
+      : (this.lane.group === 2 ? ['right'] : ['straight']);
+  }
   // a way out that is already blocked would leave the car stuck at the stop
   // line for good, so the route counts what is ahead of it
-  var choice = net.routeThrough(node, this.lane.dir, this.dest, function (lane) {
-    return sim.laneHasRoom(lane, self.len);
-  }, sim.closed, 0);
+  var room = function (lane) { return sim.laneHasRoom(lane, self.len); };
+  var choice = net.routeThrough(node, this.lane.dir, this.dest, room, sim.closed, 0, turns);
+  if (!choice && turns) {
+    // The lane has no way out of this junction: it is one of the junctions at
+    // the edge of the map, where the road the lane leads to does not go on.
+    // The car takes whatever way out there is rather than stopping for good.
+    choice = net.routeThrough(node, this.lane.dir, this.dest, room, sim.closed, 0, null);
+  }
   if (!choice) {
     if (sim.closed) {
       // the map is closed, so the only road left is the one it came from
-      var back = net.laneFrom(node, backOf(this.lane.dir));
+      var group = node.outLanes[backOf(this.lane.dir)];
+      var back = net.laneForTurn(group, 'uturn');
       if (back) choice = { lane: back, turn: 'uturn' };
     }
     if (!choice) { this.next = { exit: true, dir: this.lane.dir, turn: 'straight' }; return; }
@@ -229,6 +242,45 @@ Vehicle.prototype.chooseNext = function (sim) {
   // roads the car has to know it before it can pick the lane it drives in.
   this.makeCurve(choice, node);
 };
+
+// A turn as a rounded corner: the car drives along its lane to the point
+// where the two lanes cross, and bends round it into the next lane.  Written
+// as a cubic so the rest of the code can measure it, but the control points
+// are the exact quadratic form of that corner, which turns steadily and never
+// swings back.
+function cornerCurve(p0, vx, vy, p1, lvx, lvy, out) {
+  var cross = vx * lvy - vy * lvx;
+  var wx = p1.x - p0.x, wy = p1.y - p0.y;
+  var gap = Math.hypot(wx, wy);
+  if (Math.abs(cross) < 0.2) {
+    // the lanes run opposite ways: the car loops round in a half circle
+    var ku = Math.max(6, gap * 0.85);
+    out.pullIn = 0;
+    out.pullOut = 0;
+    return buildCurve(p0,
+      { x: p0.x + vx * ku, y: p0.y + vy * ku },
+      { x: p1.x - lvx * ku, y: p1.y - lvy * ku },
+      p1);
+  }
+  // where the two lane lines cross: that point is the corner of the turn
+  var a = (wx * lvy - wy * lvx) / cross;
+  var b = (wx * vy - wy * vx) / cross;
+  if (a < 0 || b < 0) return null;
+  // The turn needs room, so the car leaves its lane a little before the
+  // junction and joins the new one a little after it.  A quarter circle has
+  // handles of 0.55 of the radius, and they leave along the lanes.
+  var pullIn = Math.min(26, a + 14);
+  var pullOut = Math.min(26, b + 14);
+  var q0 = { x: p0.x - vx * pullIn, y: p0.y - vy * pullIn };
+  var q1 = { x: p1.x + lvx * pullOut, y: p1.y + lvy * pullOut };
+  var k1 = pullIn * 0.5523, k2 = pullOut * 0.5523;
+  out.pullIn = pullIn;
+  out.pullOut = pullOut;
+  return buildCurve(q0,
+    { x: q0.x + vx * k1, y: q0.y + vy * k1 },
+    { x: q1.x - lvx * k2, y: q1.y - lvy * k2 },
+    q1);
+}
 
 // The curve the car steers through into the next lane: a turn gets a proper
 // curve, a car that only moves over into the lane beside it gets a smooth
@@ -290,30 +342,32 @@ Vehicle.prototype.makeCurve = function (choice, node) {
     this.curve = null;
     this.curveIn = 0;
     this.curveOut = 0;
-  } else if (choice.turn === 'straight') {
-    // the car goes straight on, but it moves over into the lane beside it
-    this.curveIn = Math.min(14, Math.abs(lateral));
-    this.curveOut = 0;
-    var d = Math.min(16, Math.abs(lateral) * 1.1);
-    var q1 = { x: from.x - this.lane.vx * this.curveIn, y: from.y - this.lane.vy * this.curveIn };
-    this.curve = buildCurve(
-      q1,
-      { x: q1.x + this.lane.vx * d, y: q1.y + this.lane.vy * d },
-      { x: to2.x - choice.lane.vx * d, y: to2.y - choice.lane.vy * d },
-      to2
-    );
   } else {
-    this.curveIn = turnOffset(choice.turn);
-    this.curveOut = this.curveIn;
-    var dd = handleLen(choice.turn);
-    var p0b = { x: from.x - this.lane.vx * this.curveIn, y: from.y - this.lane.vy * this.curveIn };
-    var p1b = { x: to2.x + choice.lane.vx * this.curveOut, y: to2.y + choice.lane.vy * this.curveOut };
-    this.curve = buildCurve(
-      p0b,
-      { x: p0b.x + this.lane.vx * dd, y: p0b.y + this.lane.vy * dd },
-      { x: p1b.x - choice.lane.vx * dd, y: p1b.y - choice.lane.vy * dd },
-      p1b
-    );
+    // How far the car swings out before the junction and into the new road
+    // depends on how far it has to travel: a lane change in a wide road can
+    // be a long way to the side, and a curve with short handles would fold
+    // into a corner.
+    var lvx = choice.lane.vx, lvy = choice.lane.vy;
+    if (choice.turn !== 'straight') {
+      var out = { pullIn: 0, pullOut: 0 };
+      var corner = cornerCurve(from, this.lane.vx, this.lane.vy, to2, lvx, lvy, out);
+      this.curveIn = out.pullIn;
+      this.curveOut = out.pullOut;
+      this.curve = corner;
+    } else {
+      // a lane change: a gentle S between the two lanes, the handles a third
+      // of the way along
+      var chord = Math.hypot(to2.x - from.x, to2.y - from.y);
+      var hd = Math.max(4, chord / 3);
+      this.curveIn = 0;
+      this.curveOut = 0;
+      this.curve = buildCurve(
+        from,
+        { x: from.x + this.lane.vx * hd, y: from.y + this.lane.vy * hd },
+        { x: to2.x - lvx * hd, y: to2.y - lvy * hd },
+        to2
+      );
+    }
   }
   this.next = { lane: choice.lane, turn: choice.turn, ahead: choice.ahead || null };
 };

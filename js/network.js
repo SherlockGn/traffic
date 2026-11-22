@@ -383,12 +383,13 @@ Network.prototype.laneForTurn = function (group, turn) {
 // belongs to the turn the car makes at the junction after it, so the route
 // for that junction has to be worked out first.  The wide roads follow one
 // another, so this looks a little further ahead each time.
-Network.prototype.routeThrough = function (node, incomingDir, dest, hasRoom, closed, depth) {
-  var choice = this.nextDirection(node, incomingDir, dest, hasRoom, closed);
+Network.prototype.routeThrough = function (node, incomingDir, dest, hasRoom, closed, depth, turns) {
+  var choice = this.nextDirection(node, incomingDir, dest, hasRoom, closed,
+    depth === 0 ? turns : null);
   if (!choice || !choice.group || choice.group.length < 2) return choice;
   if (depth > 3) return choice;
   var beyond = this.nodes[choice.lane.to];
-  var next = this.routeThrough(beyond, choice.dir, dest, hasRoom, closed, depth + 1);
+  var next = this.routeThrough(beyond, choice.dir, dest, hasRoom, closed, depth + 1, null);
   if (next && !next.exit) {
     choice.lane = this.laneForTurn(choice.group, next.turn);
     // the route for the junction after this one comes with it, so that the
@@ -402,13 +403,23 @@ Network.prototype.routeThrough = function (node, incomingDir, dest, hasRoom, clo
 
 // `closed` keeps every car on the map: driving off it is not an option, so
 // a car that reaches the edge has to turn back into the city.
-Network.prototype.nextDirection = function (node, incomingDir, dest, hasRoom, closed) {
+Network.prototype.nextDirection = function (node, incomingDir, dest, hasRoom, closed, turns) {
   var cands = [
     { dir: incomingDir, turn: 'straight', w: 55 },
     { dir: rightOf(incomingDir), turn: 'right', w: 28 },
     { dir: leftOf(incomingDir), turn: 'left', w: 17 },
     { dir: backOf(incomingDir), turn: 'uturn', w: 4 }
   ];
+  // The lane the car is driving in decides the turn it makes.  On a wide road
+  // a car in the left lane has to turn left or turn around, and a car in the
+  // right lane has to turn right: the paint on the road says so.
+  if (turns) {
+    var kept = [];
+    for (var t = 0; t < cands.length; t++) {
+      if (turns.indexOf(cands[t].turn) >= 0) kept.push(cands[t]);
+    }
+    if (kept.length) cands = kept;
+  }
   var options = [];
   for (var i = 0; i < cands.length; i++) {
     var group = node.outLanes[cands[i].dir] || [];
