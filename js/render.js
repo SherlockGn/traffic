@@ -117,26 +117,24 @@ var Scene3D = (function () {
   }
 
   // the arrow of a signal lens: in the frame of the lens, up is straight on
-  // and to the side is to the side.  A turn arrow has a shaft that comes up
-  // from below and a head that bends to the side.
+  // and to the side is to the side.  A turn arrow is the straight one turned a
+  // quarter of the way round.
   function lensArrowGeo(turn) {
-    var pts;
-    if (turn === 'straight') {
-      pts = [[-0.3, -1.5], [0.3, -1.5], [0.3, 0.05], [1.05, 0.05],
-      [0, 1.55], [-1.05, 0.05], [-0.3, 0.05]];
-    } else if (turn === 'left') {
-      // a shaft that comes up and a head that bends to the left of the driver
-      // (to the left of the lens, which is the negative x side)
-      pts = [[0.825, -0.99], [0.825, 0.685], [-0.125, 0.685], [-0.125, 0.985],
-      [-0.825, 0.51], [-0.125, 0.035], [-0.125, 0.335], [0.475, 0.335], [0.475, -0.99]];
-    } else {
-      pts = [[-0.825, -0.99], [-0.825, 0.685], [0.125, 0.685], [0.125, 0.985],
-      [0.825, 0.51], [0.125, 0.035], [0.125, 0.335], [-0.475, 0.335], [-0.475, -0.99]];
+    var pts = [[-0.3, -1.5], [0.3, -1.5], [0.3, 0.05], [1.05, 0.05],
+    [0, 1.55], [-1.05, 0.05], [-0.3, 0.05]];
+    if (turn === 'left' || turn === 'right') {
+      var turned = [];
+      for (var i = 0; i < pts.length; i++) {
+        var x = pts[i][0], y = pts[i][1];
+        // a quarter turn to the left points to the driver's left
+        turned.push(turn === 'left' ? [-y, x] : [y, -x]);
+      }
+      pts = turned;
     }
     var area = 0;
-    for (var i = 0; i < pts.length; i++) {
-      var j = (i + 1) % pts.length;
-      area += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1];
+    for (var p = 0; p < pts.length; p++) {
+      var q = (p + 1) % pts.length;
+      area += pts[p][0] * pts[q][1] - pts[q][0] * pts[p][1];
     }
     if (area < 0) pts.reverse();
     var s = new THREE.Shape();
