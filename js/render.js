@@ -1189,12 +1189,17 @@ var Scene3D = (function () {
           if (!inId) continue;
           var il = net.lanes[inId];
           var vv = DIRS[il.dir];
-          var ss = il.len - STOP_BACK - 2;
+          // the lanes of this approach lie on the right of the road
+          var rx = -vv.y, rz = vv.x;
+          var off = il.arterial ? 15 : CFG.LANE_OFF;
+          // the line is where the cars halt: in front of the junction, and
+          // never inside the junction itself
+          var sd = Math.max(STOP_BACK, box / 2 + 4);
           stops.push({
-            x: node.x + vv.x * ss,
-            z: node.y + vv.y * ss,
+            x: node.x - vv.x * sd + rx * off,
+            z: node.y - vv.y * sd + rz * off,
             ang: Math.atan2(vv.y, vv.x),
-            wide: il.arterial ? 27 : 17
+            wide: il.arterial ? 30 : 18
           });
         }
       }
