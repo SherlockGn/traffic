@@ -1495,6 +1495,7 @@ var Scene3D = (function () {
           pole.scale.y = poleH / 34;
           pole.position.y = poleH / 2;
           g.add(pole);
+          g.userData.poleH = poleH;
 
           if (isArrow) {
             // a beam that lies across the road, with a head over every lane
@@ -1611,7 +1612,8 @@ var Scene3D = (function () {
         var beaconHost = north || first;
         if (beaconHost) {
           var beacon = new THREE.Mesh(beaconGeo, beaconMat);
-          beacon.position.y = 34.8;
+          // it sits on top of the pole of that group
+          beacon.position.y = (beaconHost.userData.poleH || 34) + 0.8;
           beaconHost.add(beacon);
         }
 
