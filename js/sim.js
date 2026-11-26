@@ -42,7 +42,9 @@ function Vehicle(lane, s) {
   this.type = pick(CAR_TYPES);
   this.setType(this.type);
   this.next = null;      // {lane, turn} or {exit:true, dir}
-  this.ahead = null;     // the route for the junction after the next one
+  this.chain = null;     // the route: the junctions the car will pass
+  this.ahead = null;     // the link after the one the car is on now
+  this.shifting = false; // the car is merging into another lane
   this.committed = false; // past the stop line: the car goes through
   this.dest = -1;        // side of the map this car is heading for
   this.phase = 'lane';   // lane | curve | exit
@@ -135,11 +137,22 @@ function handleLen(turn) {
   return CFG.LANE_OFF * (turn === 'uturn' ? 1.3333 : 0.5523);
 }
 
-// A right turn cannot be a quarter circle around the junction: the two lanes
-// sit on opposite sides of it, so the arc has to start before the junction
-// and end after it.  Left turns and u-turns fit around the centre.
-function turnOffset(turn) {
-  return turn === 'right' ? 2 * CFG.LANE_OFF : 0;
+// The handle of a curve has to fit the curve: a quarter of a circle takes a
+// handle of 0.39 of the chord, a half circle 0.67.  A handle that is too long
+// makes the curve swing back the way it came, and the car jerks round.
+function chordHandles(p0, p1, turn) {
+  var chord = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+  var k = turn === 'uturn' ? 0.67 : 0.39;
+  return Math.max(2, chord * k);
+}
+
+// A turn cannot be a quarter circle around the junction: the two lanes sit on
+// opposite sides of it, so the car has to start turning before the junction
+// and finish after it.  The room it needs grows with the distance between the
+// lanes, but it can never be more than the room there is between the stop
+// line and the junction, or the car would be pulled back at the stop line.
+function turnOffset(gap) {
+  return Math.min(STOP_BACK - 4, Math.max(16, Math.abs(gap) * 0.8));
 }
 
 // control points sit on the two lanes' tangent lines, so the car enters and
@@ -204,8 +217,11 @@ Vehicle.prototype.leaderInfo = function (sim) {
   return { gap: 4000, leadV: this.v };
 };
 
-// The route is decided once, when the car picks up the road, and it never
-// changes afterwards.
+// The route is a chain of the junctions the car will pass.  The first link
+// is the junction it is heading for now, and every time it passes one the
+// chain is used up by a link and a new one is worked out at the end.  The
+// lane a car drives in belongs to the turn it makes a few junctions later,
+// so the chain has to reach that far.
 Vehicle.prototype.chooseNext = function (sim) {
   if (this.next) return;
   var net = sim.net;
@@ -221,65 +237,124 @@ Vehicle.prototype.chooseNext = function (sim) {
   // a way out that is already blocked would leave the car stuck at the stop
   // line for good, so the route counts what is ahead of it
   var room = function (lane) { return sim.laneHasRoom(lane, self.len); };
-  var choice = net.routeThrough(node, this.lane.dir, this.dest, room, sim.closed, 0, turns);
-  if (!choice && turns) {
+  var chain = net.routeChain(node, this.lane.dir, this.dest, room, sim.closed, turns);
+  if (!chain.length && turns) {
     // The lane has no way out of this junction: it is one of the junctions at
     // the edge of the map, where the road the lane leads to does not go on.
-    // The car takes whatever way out there is rather than stopping for good.
-    choice = net.routeThrough(node, this.lane.dir, this.dest, room, sim.closed, 0, null);
+    // The car takes whatever way out there is rather than stopping for good,
+    // and it moves over into the lane that turn belongs to.
+    var loose = net.routeChain(node, this.lane.dir, this.dest, room, sim.closed, null);
+    if (loose.length) {
+      // the car merges into the lane that turn belongs to, and the route is
+      // worked out again once it is there
+      this.chain = null;
+      this.next = null;
+      this.fitLane(sim, loose[0].turn);
+      return;
+    }
   }
-  if (!choice) {
+  if (!chain.length) {
     if (sim.closed) {
       // the map is closed, so the only road left is the one it came from
       var group = node.outLanes[backOf(this.lane.dir)];
       var back = net.laneForTurn(group, 'uturn');
-      if (back) choice = { lane: back, turn: 'uturn' };
+      if (back) chain = [{ lane: back, turn: 'uturn', dir: backOf(this.lane.dir) }];
     }
-    if (!choice) { this.next = { exit: true, dir: this.lane.dir, turn: 'straight' }; return; }
+    if (!chain.length) {
+      this.next = { exit: true, dir: this.lane.dir, turn: 'straight' };
+      this.chain = [];
+      return;
+    }
   }
 
-  // The route for the junction after this one comes with it: on the wide
-  // roads the car has to know it before it can pick the lane it drives in.
-  this.makeCurve(choice, node);
+  this.chain = chain;
+  this.makeCurve(chain[0], node);
 };
 
-// A turn as a rounded corner: the car drives along its lane to the point
-// where the two lanes cross, and bends round it into the next lane.  Written
-// as a cubic so the rest of the code can measure it, but the control points
-// are the exact quadratic form of that corner, which turns steadily and never
-// swings back.
-function cornerCurve(p0, vx, vy, p1, lvx, lvy, out) {
-  var cross = vx * lvy - vy * lvx;
-  var wx = p1.x - p0.x, wy = p1.y - p0.y;
-  var gap = Math.hypot(wx, wy);
-  if (Math.abs(cross) < 0.2) {
-    // the lanes run opposite ways: the car loops round in a half circle
-    var ku = Math.max(6, gap * 0.85);
-    out.pullIn = 0;
-    out.pullOut = 0;
-    return buildCurve(p0,
-      { x: p0.x + vx * ku, y: p0.y + vy * ku },
-      { x: p1.x - lvx * ku, y: p1.y - lvy * ku },
-      p1);
+// Take the link the car is about to drive off the chain, and work out a new
+// one for the end of it.  When the chain runs out, or when the road it
+// points to is no longer there, the whole chain is thrown away and worked
+// out again from where the car is now.
+Vehicle.prototype.takeLink = function (sim) {
+  var net = sim.net;
+  var node = net.nodes[this.lane.to];
+  var link = this.chain && this.chain.length ? this.chain.shift() : null;
+  if (!link || !link.lane || link.lane.to !== node.id) {
+    // the chain does not fit here any more: it is worked out again
+    this.chain = null;
+    this.next = null;
+    this.chooseNext(sim);
+    return;
   }
-  // where the two lane lines cross: that point is the corner of the turn
-  var a = (wx * lvy - wy * lvx) / cross;
-  var b = (wx * vy - wy * vx) / cross;
-  if (a < 0 || b < 0) return null;
-  // The turn needs room, so the car leaves its lane a little before the
-  // junction and joins the new one a little after it.  A quarter circle has
-  // handles of 0.55 of the radius, and they leave along the lanes.
-  var pullIn = Math.min(26, a + 14);
-  var pullOut = Math.min(26, b + 14);
-  var q0 = { x: p0.x - vx * pullIn, y: p0.y - vy * pullIn };
-  var q1 = { x: p1.x + lvx * pullOut, y: p1.y + lvy * pullOut };
-  var k1 = pullIn * 0.5523, k2 = pullOut * 0.5523;
-  out.pullIn = pullIn;
-  out.pullOut = pullOut;
-  return buildCurve(q0,
-    { x: q0.x + vx * k1, y: q0.y + vy * k1 },
-    { x: q1.x - lvx * k2, y: q1.y - lvy * k2 },
-    q1);
+  this.ahead = this.chain.length ? this.chain[0] : null;
+  // the chain is worked out again from the junction after this one
+  var self = this;
+  var room = function (lane) { return sim.laneHasRoom(lane, self.len); };
+  var beyond = net.nodes[link.lane.to];
+  var tail = net.routeChain(beyond, link.dir, this.dest, room, sim.closed, null);
+  if (tail.length) {
+    this.chain = tail;
+    this.ahead = tail[0];
+  } else {
+    this.chain = [];
+    this.ahead = null;
+  }
+};
+
+// The radius of a turn.  It has to be small enough that the car can start
+// turning before the stop line, and big enough that the turn looks like a
+// turn and not a corner.
+var TURN_R = 14;
+
+// The curve of a turn: an arc that touches the lane the car drives in and
+// the lane it drives out to.  The corner is where the two lane lines cross,
+// and the arc goes round it with a radius of R.
+function cornerArc(from, vx, vy, to2, lvx, lvy, R) {
+  var cross = vx * lvy - vy * lvx;
+  if (Math.abs(cross) < 1e-4) return null;     // the lanes run parallel
+  var wx = to2.x - from.x, wy = to2.y - from.y;
+  var along = (wx * lvy - wy * lvx) / cross;   // where the corner is
+  var cx = from.x + vx * along, cy = from.y + vy * along;
+  // the arc touches the two lanes a radius away from the corner
+  var start = { x: cx - vx * R, y: cy - vy * R };
+  var end = { x: cx + lvx * R, y: cy + lvy * R };
+  // the handle of a quarter circle is 0.55 of the radius long
+  var h = R * 0.5523;
+  return {
+    start: start, end: end,
+    curve: buildCurve(
+      start,
+      { x: start.x + vx * h, y: start.y + vy * h },
+      { x: end.x - lvx * h, y: end.y - lvy * h },
+      end
+    )
+  };
+}
+
+// The curve of a turn around: a half circle that takes the car back the way
+// it came.  It loops over to the other side of the road, on the left.
+function uturnArc(from, vx, vy, to2, lvx, lvy) {
+  // to the left of the lane the car drives in
+  var px = -vy, py = vx;
+  // how far the road it turns into lies to the left of it
+  var d = (to2.x - from.x) * px + (to2.y - from.y) * py;
+  var R = Math.max(6, Math.abs(d) / 2);
+  var pre = 0;                                   // the loop happens at the junction
+  // the circle sits between the two lanes
+  var cx = from.x - vx * pre + px * (d / 2);
+  var cy = from.y - vy * pre + py * (d / 2);
+  var start = { x: cx - px * (d / 2), y: cy - py * (d / 2) };
+  var end = { x: cx + px * (d / 2), y: cy + py * (d / 2) };
+  var h = R * 1.3333;
+  return {
+    start: start, end: end,
+    curve: buildCurve(
+      start,
+      { x: start.x + vx * h, y: start.y + vy * h },
+      { x: end.x - lvx * h, y: end.y - lvy * h },
+      end
+    )
+  };
 }
 
 // The curve the car steers through into the next lane: a turn gets a proper
@@ -315,21 +390,18 @@ Vehicle.prototype.makeCurve = function (choice, node) {
         this.exitFrom = base;
       }
     } else {
-      this.curveIn = turnOffset(choice.turn);
-      this.curveOut = this.curveIn;
-      var e = handleLen(choice.turn);
-      var to = { x: base.x + ed.x * this.curveOut, y: base.y + ed.y * this.curveOut };
-      var p0 = {
-        x: from.x - this.lane.vx * this.curveIn,
-        y: from.y - this.lane.vy * this.curveIn
-      };
-      this.curve = buildCurve(
-        p0,
-        { x: p0.x + this.lane.vx * e, y: p0.y + this.lane.vy * e },
-        { x: to.x - ed.x * e, y: to.y - ed.y * e },
-        to
-      );
-      this.exitFrom = to;
+      var arc = cornerArc(from, this.lane.vx, this.lane.vy, base, ed.x, ed.y, TURN_R);
+      if (!arc) {
+        this.curve = null;
+        this.curveIn = 0;
+        this.curveOut = 0;
+        this.exitFrom = base;
+      } else {
+        this.curve = arc.curve;
+        this.curveIn = (from.x - arc.start.x) * this.lane.vx + (from.y - arc.start.y) * this.lane.vy;
+        this.curveOut = (arc.end.x - base.x) * ed.x + (arc.end.y - base.y) * ed.y;
+        this.exitFrom = arc.end;
+      }
     }
     return;
   }
@@ -343,33 +415,40 @@ Vehicle.prototype.makeCurve = function (choice, node) {
     this.curveIn = 0;
     this.curveOut = 0;
   } else {
-    // How far the car swings out before the junction and into the new road
-    // depends on how far it has to travel: a lane change in a wide road can
-    // be a long way to the side, and a curve with short handles would fold
-    // into a corner.
     var lvx = choice.lane.vx, lvy = choice.lane.vy;
     if (choice.turn !== 'straight') {
-      var out = { pullIn: 0, pullOut: 0 };
-      var corner = cornerCurve(from, this.lane.vx, this.lane.vy, to2, lvx, lvy, out);
-      this.curveIn = out.pullIn;
-      this.curveOut = out.pullOut;
-      this.curve = corner;
+      // A turn: an arc that touches both lanes
+      var bend = choice.turn === 'uturn'
+        ? uturnArc(from, this.lane.vx, this.lane.vy, to2, lvx, lvy)
+        : cornerArc(from, this.lane.vx, this.lane.vy, to2, lvx, lvy, TURN_R);
+      if (!bend) {
+        this.curve = null;
+        this.curveIn = 0;
+        this.curveOut = 0;
+      } else {
+        this.curve = bend.curve;
+        this.curveIn = (from.x - bend.start.x) * this.lane.vx + (from.y - bend.start.y) * this.lane.vy;
+        this.curveOut = (bend.end.x - to2.x) * lvx + (bend.end.y - to2.y) * lvy;
+      }
     } else {
-      // a lane change: a gentle S between the two lanes, the handles a third
-      // of the way along
-      var chord = Math.hypot(to2.x - from.x, to2.y - from.y);
-      var hd = Math.max(4, chord / 3);
-      this.curveIn = 0;
-      this.curveOut = 0;
+      // A lane change: the car moves over to the lane beside it while it
+      // carries on, so it crosses at an angle instead of turning sideways.
+      var reach = Math.min(30, Math.max(9, Math.abs(lateral) * 1.2));
+      this.curveIn = reach;
+      var q1 = { x: from.x - this.lane.vx * reach, y: from.y - this.lane.vy * reach };
+      var q2 = { x: to2.x + lvx * reach, y: to2.y + lvy * reach };
+      var chord = Math.hypot(q2.x - q1.x, q2.y - q1.y);
+      var hd = Math.max(5, chord * 0.34);
       this.curve = buildCurve(
-        from,
-        { x: from.x + this.lane.vx * hd, y: from.y + this.lane.vy * hd },
-        { x: to2.x - lvx * hd, y: to2.y - lvy * hd },
-        to2
+        q1,
+        { x: q1.x + this.lane.vx * hd, y: q1.y + this.lane.vy * hd },
+        { x: q2.x - lvx * hd, y: q2.y - lvy * hd },
+        q2
       );
+      this.curveOut = reach;
     }
   }
-  this.next = { lane: choice.lane, turn: choice.turn, ahead: choice.ahead || null };
+  this.next = { lane: choice.lane, turn: choice.turn };
 };
 
 Vehicle.prototype.update = function (dt, sim) {
@@ -388,6 +467,16 @@ Vehicle.prototype.update = function (dt, sim) {
     this.curveS += this.v * dt;
     if (this.curveS >= this.curve.len) {
       this.curveS = this.curve.len;
+      if (this.shifting) {
+        // the car has merged into the lane beside it and carries on
+        this.shifting = false;
+        this.curve = null;
+        this.phase = 'lane';
+        this.s = this.curveOut;
+        this.committed = false;
+        this.fresh = false;
+        return;
+      }
       if (this.next && this.next.exit) this.startExit(sim);
       else this.enterNextLane(sim);
     }
@@ -493,20 +582,55 @@ Vehicle.prototype.startExit = function (sim) {
 };
 
 // Put the car in the lane that belongs to the turn it is going to make at
-// the end of the road it is on.  It is used when a car is put on the map by
-// hand, and when it turns around at the edge.
-Vehicle.prototype.fitLane = function (sim) {
-  if (!this.next || this.next.exit) return;
+// the junction ahead.  It is used when a car is put on the map by hand, and
+// when it turns around at the edge.  The car merges over with a curve, it
+// does not jump sideways.
+Vehicle.prototype.fitLane = function (sim, turn) {
+  if (turn === undefined) {
+    if (!this.chain || !this.chain.length) return;
+    // the turn the car makes at the junction it is heading for
+    turn = this.chain[0].turn;
+  }
+  if (turn === 'uturn') turn = 'left';
   var group = sim.net.nodes[this.lane.from].outLanes[this.lane.dir];
   if (!group || group.length < 2) return;
-  var turn = this.next.turn;
   var want = sim.net.laneForTurn(group, turn);
   if (!want || want === this.lane) return;
+
+  // the curve that merges it into the lane beside it
+  var vx = this.lane.vx, vy = this.lane.vy;
+  var was = this.s;
+  var start = {
+    x: this.lane.p0.x + vx * was,
+    y: this.lane.p0.y + vy * was
+  };
+  var len = 18;
+  var end = {
+    x: want.p0.x + want.vx * (was + len),
+    y: want.p0.y + want.vy * (was + len)
+  };
+  var h = len * 0.5;
+  var merge = buildCurve(
+    start,
+    { x: start.x + vx * h, y: start.y + vy * h },
+    { x: end.x - want.vx * h, y: end.y - want.vy * h },
+    end
+  );
   this.remove();
   this.lane = want;
+  this.s = 0;
   this.insert();
+  // the car drives the merge curve and carries on in the new lane
+  this.curve = merge;
+  this.curveS = 0;
+  this.curveIn = 0;
+  this.curveOut = was + len;
+  this.phase = 'curve';
+  this.shifting = true;
+  // the route is worked out again when the car reaches the junction, now
+  // that it is in another lane
+  this.chain = null;
   this.next = null;
-  this.makeCurve({ lane: want, turn: turn }, sim.net.nodes[want.to]);
 };
 
 // Put a car that was driving off the map back onto the road behind it, so
@@ -521,6 +645,7 @@ Vehicle.prototype.reenter = function (sim) {
   this.phase = 'lane';
   this.curve = null;
   this.next = null;
+  this.chain = null;
   this.ahead = null;
   this.committed = false;
   this.fresh = false;
@@ -541,9 +666,6 @@ Vehicle.prototype.enterNextLane = function (sim) {
   var node = sim.net.nodes[this.lane.to];
   sim.releaseSlot(node, this.lane.dir);
   var lane = this.next.lane;
-  // the route for the junction at the end of the new road, worked out when
-  // the car picked the lane it is driving on
-  var plan = this.next.ahead;
   this.remove();
   this.lane = lane;
   this.s = this.curveOut;
@@ -555,11 +677,9 @@ Vehicle.prototype.enterNextLane = function (sim) {
   this.passCount++;
   sim.flow++;
 
-  if (plan && plan.lane && plan.node === lane.to) {
-    this.makeCurve({ lane: plan.lane, turn: plan.turn }, sim.net.nodes[lane.to]);
-    // and the route for the junction after that one comes along as well
-    this.ahead = plan.ahead || null;
-  }
+  // the link for the junction the car has just passed is used up, and a new
+  // one is worked out for the end of the chain
+  this.takeLink(sim);
 
   this.insert();
 };

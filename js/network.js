@@ -371,12 +371,19 @@ Network.prototype.leavesMap = function (node, dir) {
 
 // The lane of a group that a turn uses: the left turn has its own lane, the
 // right turn has its own, and what is left in the middle goes straight on.
+// A turn around uses the left lane too, the one the driver looks over their
+// shoulder through.
 Network.prototype.laneForTurn = function (group, turn) {
   if (!group || !group.length) return null;
   if (group.length < 3) return group[0];
   var idx = turn === 'right' ? 2 : (turn === 'straight' ? 1 : 0);
   return group[idx];
 };
+
+// How many junctions ahead the route is worked out for.  The car picks its
+// lane on the road it drives on now, and that lane belongs to the turn it
+// makes two or three junctions later, so the route has to reach that far.
+var ROUTE_DEPTH = 5;
 
 // The route through a junction: the way the car goes and the lane it takes
 // on the road beyond.  On the wide roads of the middle of the map that lane
@@ -387,7 +394,7 @@ Network.prototype.routeThrough = function (node, incomingDir, dest, hasRoom, clo
   var choice = this.nextDirection(node, incomingDir, dest, hasRoom, closed,
     depth === 0 ? turns : null);
   if (!choice || !choice.group || choice.group.length < 2) return choice;
-  if (depth > 3) return choice;
+  if (depth >= ROUTE_DEPTH) return choice;
   var beyond = this.nodes[choice.lane.to];
   var next = this.routeThrough(beyond, choice.dir, dest, hasRoom, closed, depth + 1, null);
   if (next && !next.exit) {
@@ -399,6 +406,28 @@ Network.prototype.routeThrough = function (node, incomingDir, dest, hasRoom, clo
     };
   }
   return choice;
+};
+
+// The route a car drives, a chain of the junctions it will pass.  The first
+// link is the junction the car is heading for now, the second the one after
+// that, and so on.  Every time the car passes a junction the chain is used
+// up by one and a new link is worked out at the end.
+Network.prototype.routeChain = function (node, incomingDir, dest, hasRoom, closed, turns) {
+  var chain = [];
+  var cur = node, dir = incomingDir;
+  var linkTurns = turns;
+  for (var i = 0; i < ROUTE_DEPTH; i++) {
+    var choice = this.routeThrough(cur, dir, dest, hasRoom, closed, 0, linkTurns);
+    if (!choice) break;
+    chain.push({
+      lane: choice.lane, turn: choice.turn, dir: choice.dir, exit: !!choice.exit
+    });
+    if (choice.exit) break;
+    cur = this.nodes[choice.lane.to];
+    dir = choice.dir;
+    linkTurns = null;
+  }
+  return chain;
 };
 
 // `closed` keeps every car on the map: driving off it is not an option, so
