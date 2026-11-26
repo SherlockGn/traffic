@@ -1399,6 +1399,21 @@ var Scene3D = (function () {
       // where the heads of the lanes stand is decided per approach, in the
       // frame of the signal that carries them
 
+      // The same lit border the ordinary signal heads have: a frame around
+      // the lens column and a frame around the back of the head, both of
+      // which light up in the colour of the arrow.
+      var laneTrimParts = [];
+      var laneTrims = [[4.9, 0.5, 0, 6.5, 1.45], [4.9, 0.5, 0, -6.5, 1.45],
+      [0.5, 13.5, 2.45, 0, 1.45], [0.5, 13.5, -2.45, 0, 1.45],
+      [7.4, 0.45, 0, 7.3, -1.95], [7.4, 0.45, 0, -7.3, -1.95],
+      [0.45, 14.6, 3.45, 0, -1.95], [0.45, 14.6, -3.45, 0, -1.95]];
+      for (i = 0; i < laneTrims.length; i++) {
+        var ltg = new THREE.BoxGeometry(laneTrims[i][0], laneTrims[i][1], 0.5);
+        ltg.translate(laneTrims[i][2], laneTrims[i][3], laneTrims[i][4]);
+        laneTrimParts.push(ltg);
+      }
+      var laneTrimGeo = mergeParts(laneTrimParts);
+
       // the backing plate, a frame around the lens column and a frame around
       // the back of the plate: both frames light up in the colour of the
       // signal, so the state can be read from the front and from behind
@@ -1455,6 +1470,7 @@ var Scene3D = (function () {
         // the arrows of the turns, one set for every axis
         var arrowMats = { V: {}, H: {} };
         var arrowHalos = { V: {}, H: {} };
+        var arrowTrims = { V: {}, H: {} };
         if (node2.light.arrows) {
           var turns = ['left', 'straight', 'right'];
           for (var at = 0; at < 2; at++) {
@@ -1462,6 +1478,10 @@ var Scene3D = (function () {
             for (var tn = 0; tn < 3; tn++) {
               arrowMats[ax2][turns[tn]] = [];
               arrowHalos[ax2][turns[tn]] = [];
+              // the lit border around the arrows of this turn
+              arrowTrims[ax2][turns[tn]] = new THREE.MeshStandardMaterial({
+                color: 0x6b4d12, roughness: 0.7, emissive: 0x000000, emissiveIntensity: 1.2
+              });
               for (var li = 0; li < 3; li++) {
                 arrowMats[ax2][turns[tn]][li] = new THREE.MeshStandardMaterial({
                   color: LENS[li].off, roughness: 0.3, emissive: 0x000000, emissiveIntensity: 0
@@ -1544,6 +1564,10 @@ var Scene3D = (function () {
               lg.add(lHouse);
               lHouse.userData.node = node2;
               pickables.push(lHouse);
+              // the lit border around the arrows, the same as the ordinary
+              // signal heads have
+              var lTrim = new THREE.Mesh(laneTrimGeo, arrowTrims[sp.axis][turns[ti]]);
+              lg.add(lTrim);
               // the dark panel the lenses sit in
               var lPanel = new THREE.Mesh(lanePanelGeo, laneDarkMat);
               lPanel.position.z = 0.8;
@@ -1571,6 +1595,7 @@ var Scene3D = (function () {
             }
             sp.laneMats = arrowMats[sp.axis];
             sp.laneHalos = arrowHalos[sp.axis];
+            sp.laneTrims = arrowTrims[sp.axis];
           } else {
             var matArr = [];
             for (var q = 0; q < plateMats.length; q++) {
@@ -1785,9 +1810,9 @@ var Scene3D = (function () {
         for (var asi = 0; asi < head.spots.length; asi++) {
           var asp = head.spots[asi];
           if (!asp.laneMats) continue;
-          applyLane(asp.laneMats, asp.laneHalos, 'left', light.laneSignal(asp.axis, 'left'));
-          applyLane(asp.laneMats, asp.laneHalos, 'straight', light.laneSignal(asp.axis, 'straight'));
-          applyLane(asp.laneMats, asp.laneHalos, 'right', light.laneSignal(asp.axis, 'right'));
+          applyLane(asp.laneMats, asp.laneHalos, asp.laneTrims, 'left', light.laneSignal(asp.axis, 'left'));
+          applyLane(asp.laneMats, asp.laneHalos, asp.laneTrims, 'straight', light.laneSignal(asp.axis, 'straight'));
+          applyLane(asp.laneMats, asp.laneHalos, asp.laneTrims, 'right', light.laneSignal(asp.axis, 'right'));
         }
       }
 
@@ -1807,7 +1832,7 @@ var Scene3D = (function () {
     }
 
     // a turn arrow: green when the turn may go, red when it may not
-    function applyLane(mats, halos, turn, state) {
+    function applyLane(mats, halos, trims, turn, state) {
       var set = mats[turn], hs = halos[turn];
       for (var k = 0; k < 3; k++) {
         var lit = (k === 0 && state === 'stop') ||
@@ -1817,6 +1842,12 @@ var Scene3D = (function () {
         set[k].emissive.setHex(lit ? LENS[k].on : 0x000000);
         set[k].emissiveIntensity = lit ? 1.6 : 0;
         hs[k].visible = lit;
+      }
+      // the border around the arrows lights up in the same colour
+      if (trims && trims[turn]) {
+        var hex = state === 'go' ? LENS[2].on : state === 'caution' ? LENS[1].on : LENS[0].on;
+        trims[turn].emissive.setHex(hex);
+        trims[turn].color.setHex(0x6b4d12);
       }
     }
 
