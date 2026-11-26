@@ -64,16 +64,30 @@ var Scene3D = (function () {
   }
 
   // where the head of one approach stands and which way it looks: past the
-  // junction, on the right hand side of the driver, facing back at them
-  function headSpot(node, lane, side) {
-    var t = DIRS[lane.dir];
-    var r = { x: -t.y, y: t.x };
+  // junction, on the right hand side of the driver, facing back at them.
+  // The pole stands clear of the road and of the junction, the arm reaches
+  // over the lanes and carries the head there.
+  function headSpot(node, lane, side, net) {
+    var t = DIRS[lane.dir];        // the way the drivers of this approach go
+    var r = { x: -t.y, y: t.x };   // to their right
+    // the road beyond the junction, the one the head hangs over
+    var far = net.laneFrom(node, lane.dir);
+    var half = far && far.arterial ? 30 : CFG.ROAD_W / 2;
+    var boxHalf = (node.box || CFG.BOX) / 2;
+    // where the heads hang: over the lanes the drivers of this approach are
+    // in.  A junction with protected turns shows a head for every lane.
+    var lats = node.light.arrows ? ARTERYAL_OFF
+      : [lane.groupSize > 1 ? ARTERYAL_OFF[1] : CFG.LANE_OFF];
+    // the pole stands clear of the road and of the junction
+    var lat = Math.max(half, boxHalf) + 7;
     return {
-      x: node.x + t.x * 25 + r.x * 23,
-      z: node.y + t.y * 25 + r.y * 23,
+      x: node.x + t.x * (boxHalf + 8) + r.x * lat,
+      z: node.y + t.y * (boxHalf + 8) + r.y * lat,
       ang: Math.atan2(-t.x, -t.y),
       axis: isVertical(lane.dir) ? 'V' : 'H',
-      side: side
+      side: side,
+      lat: lat,
+      lats: lats
     };
   }
 
@@ -976,7 +990,7 @@ var Scene3D = (function () {
         for (d = 0; d < 4; d++) {
           var fid = fn.in[d];
           if (!fid) continue;
-          list.push(headSpot(fn, net.lanes[fid], d));
+          list.push(headSpot(fn, net.lanes[fid], d, net));
         }
         spots.push(list);
       }
@@ -1382,8 +1396,8 @@ var Scene3D = (function () {
       var laneDarkMat = new THREE.MeshStandardMaterial({ color: 0x161b21, roughness: 0.5 });
       // the frame of a lane signal is light, the lenses inside it are dark
       var laneFrameMat = new THREE.MeshStandardMaterial({ color: 0x939ba5, roughness: 0.55 });
-      // where the heads of the lanes stand, in the frame of the signal
-      var laneXs = [-4, 6, 16];
+      // where the heads of the lanes stand is decided per approach, in the
+      // frame of the signal that carries them
 
       // the backing plate, a frame around the lens column and a frame around
       // the back of the plate: both frames light up in the colour of the
@@ -1469,41 +1483,61 @@ var Scene3D = (function () {
           g.position.set(sp.x, 0, sp.z);
           g.rotation.y = sp.ang;
 
-          // the pole stands on the corner, the arm carries the head over the lane
+          // the pole stands on the corner, clear of the road, and the arm
+          // reaches back over the lanes and carries the head there
+          var lats = sp.lats;
+          var reach = sp.lat - lats[0];
+          var isArrow = node2.light.arrows;
+          var armY = isArrow ? 38 : 32;
+          var poleH = isArrow ? 41 : 34;
+
           var pole = new THREE.Mesh(poleGeo, poleMat);
-          pole.position.y = 17;
+          pole.scale.y = poleH / 34;
+          pole.position.y = poleH / 2;
           g.add(pole);
 
-          var arm = new THREE.Mesh(armGeo, poleMat);
-          arm.position.set(-7.25, 32, 0);
-          g.add(arm);
+          if (isArrow) {
+            // a beam that lies across the road, with a head over every lane
+            var beam = new THREE.Mesh(unitBox, poleMat);
+            beam.scale.set(reach, 2.2, 2.2);
+            beam.position.set(-reach / 2, armY, 0);
+            g.add(beam);
+          } else {
+            var arm = new THREE.Mesh(armGeo, poleMat);
+            arm.scale.x = reach / 14.5;
+            arm.position.set(-reach / 2, armY, 0);
+            g.add(arm);
+          }
 
+          // the brace that holds the arm up
+          var bx = -(reach - 1), by = armY - 21;
           var brace = new THREE.Mesh(braceGeo, poleMat);
-          brace.rotation.z = 0.842;
-          brace.position.set(-6.5, 25.8, 0);
+          brace.scale.y = Math.hypot(bx, by) / 17.4;
+          brace.rotation.z = Math.atan2(-bx, by);
+          brace.position.set(bx / 2, 20 + by / 2, 0);
           g.add(brace);
 
-          var hang = new THREE.Mesh(hangGeo, poleMat);
-          hang.position.set(-14, 31.9, 0);
-          g.add(hang);
+          // the hangers that hold the heads under the arm
+          for (var hi = 0; hi < lats.length; hi++) {
+            var hang = new THREE.Mesh(hangGeo, poleMat);
+            hang.position.set(-reach + (lats[hi] - lats[0]),
+              isArrow ? armY - 1.7 : armY - 0.1, 0);
+            g.add(hang);
+          }
 
           // the head itself hangs from the end of the arm
           var head = new THREE.Group();
-          head.position.set(-14, 0, 0);
+          head.position.set(-reach, 0, 0);
           g.add(head);
 
           if (node2.light.arrows) {
             // the lane signals of the middle junction: a head for every lane
-            // on a bar that reaches over the road
+            // hanging under the beam that reaches over the road
             var lane = new THREE.Group();
             head.add(lane);
-            var bar = new THREE.Mesh(unitBox, poleMat);
-            bar.scale.set(30, 2.2, 2.2);
-            bar.position.set(6, 36, 0);
-            lane.add(bar);
-            for (var ti = 0; ti < 3; ti++) {
+            for (var ti = 0; ti < lats.length; ti++) {
               var lg = new THREE.Group();
-              lg.position.set(laneXs[ti], 28, 0);
+              lg.position.set(lats[ti] - lats[0], 28, 0);
               lane.add(lg);
               var lHouse = new THREE.Mesh(laneHousingGeo, laneFrameMat);
               lg.add(lHouse);
