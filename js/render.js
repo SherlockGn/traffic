@@ -966,6 +966,9 @@ var Scene3D = (function () {
     }
 
     function build(net) {
+      // where the cars of every approach stop, so the painted line and the
+      // cars agree
+      computeStopGaps(net);
       disposeGroup(staticGroup);
       disposeGroup(lightGroup);
       // the scenery of the last build goes with it
@@ -1192,9 +1195,8 @@ var Scene3D = (function () {
           // the lanes of this approach lie on the right of the road
           var rx = -vv.y, rz = vv.x;
           var off = il.arterial ? 15 : CFG.LANE_OFF;
-          // the line is where the cars halt: in front of the junction, and
-          // never inside the junction itself
-          var sd = Math.max(STOP_BACK, box / 2 + 4);
+          // the line is where the cars halt: the gap the approach stops at
+          var sd = node.stopGap ? node.stopGap[il.dir] : STOP_BACK;
           stops.push({
             x: node.x - vv.x * sd + rx * off,
             z: node.y - vv.y * sd + rz * off,

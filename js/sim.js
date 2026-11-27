@@ -155,6 +155,62 @@ function turnOffset(gap) {
   return Math.min(STOP_BACK - 4, Math.max(16, Math.abs(gap) * 0.8));
 }
 
+// How far before the junction the cars of an approach have to stop.  A turn
+// begins a long way before the junction when the lanes it joins sit far
+// apart: on the wide roads of the middle the right turn starts 39 metres
+// before the junction, while the stop line is only 32.  A car that waits on
+// the line then has to turn straight out of a standstill and drags through
+// the whole turn, so those approaches stop further back, far enough to pull
+// away and reach the cornering speed before the turn starts.
+var ACCEL_ROOM = 5;      // the room the car needs to get up to speed
+
+function computeStopGaps(net) {
+  for (var i = 0; i < net.nodes.length; i++) {
+    var node = net.nodes[i];
+    node.stopGap = {};
+    for (var d = 0; d < 4; d++) {
+      var gap = STOP_BACK;
+      var group = node.inLanes[backOf(d)];
+      if (group) {
+        for (var g = 0; g < group.length; g++) {
+          var lane = group[g];
+          // the turns this lane can make, and the road they lead to
+          var turns;
+          if (lane.groupSize > 1) {
+            turns = lane.group === 0 ? ['left', 'uturn'] : lane.group === 2 ? ['right'] : [];
+          } else {
+            turns = ['left', 'right', 'uturn'];
+          }
+          for (var t = 0; t < turns.length; t++) {
+            var turn = turns[t];
+            var exitDir = turn === 'right' ? rightOf(d) : turn === 'left' ? leftOf(d) : backOf(d);
+            var eg = node.outLanes[exitDir];
+            if (!eg) continue;
+            var exit = net.laneForTurn(eg, turn);
+            if (!exit) continue;
+            var arc = turn === 'uturn'
+              ? uturnArc(lane.p1, lane.vx, lane.vy, exit.p0, exit.vx, exit.vy)
+              : cornerArc(lane.p1, lane.vx, lane.vy, exit.p0, exit.vx, exit.vy, TURN_R);
+            if (!arc) continue;
+            // how far before the junction the turn begins
+            var back = (lane.p1.x - arc.start.x) * lane.vx + (lane.p1.y - arc.start.y) * lane.vy;
+            if (back + ACCEL_ROOM > gap) gap = back + ACCEL_ROOM;
+          }
+        }
+      }
+      node.stopGap[d] = gap;
+    }
+  }
+}
+
+// Where the cars of this lane stop: the front bumper waits the gap of the
+// approach in front of the junction.
+function stopGap(sim, lane) {
+  var node = sim.net.nodes[lane.to];
+  if (node.stopGap && node.stopGap[lane.dir] !== undefined) return node.stopGap[lane.dir];
+  return STOP_BACK;
+}
+
 // control points sit on the two lanes' tangent lines, so the car enters and
 // leaves the junction without a kink
 function buildCurve(from, c1, c2, to) {
@@ -197,7 +253,7 @@ Vehicle.prototype.leaderInfo = function (sim) {
 
   var net = sim.net;
   var node = net.nodes[this.lane.to];
-  var stopS = this.lane.len - STOP_BACK - this.len / 2;
+  var stopS = this.lane.len - stopGap(sim, this.lane) - this.len / 2;
   var blocked = !sim.mayCross(this, node);
   if (blocked) {
     return { gap: Math.max(0.05, stopS - this.s), leadV: 0 };
@@ -518,7 +574,7 @@ Vehicle.prototype.update = function (dt, sim) {
 
   // the stop line is where the front bumper halts, so the car never creeps
   // over it and then has to be yanked back
-  var stopS = lane.len - STOP_BACK - this.len / 2;
+  var stopS = lane.len - stopGap(sim, lane) - this.len / 2;
   if (this.s >= stopS) {
     var node = sim.net.nodes[lane.to];
     if (!this.committed) {
@@ -702,6 +758,7 @@ function Simulation(net) {
   this.rightOnRed = true;
   this.nextId = 1;
   this.setRightOnRed(this.rightOnRed);
+  computeStopGaps(net);
 }
 
 // Right turn on red: when it is on, the red light of the approach does not
@@ -787,7 +844,7 @@ Simulation.prototype.mayCross = function (car, node) {
   // already past the stop line: it is in the junction, it goes through
   if (car.committed) return true;
 
-  var stopS = car.lane.len - STOP_BACK - car.len / 2;
+  var stopS = car.lane.len - stopGap(this, car.lane) - car.len / 2;
   var distToStop = stopS - car.s;
 
   // which way is this car going to turn?  The route is picked before the
